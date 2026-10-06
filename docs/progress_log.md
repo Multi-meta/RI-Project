@@ -66,6 +66,45 @@ Format: date — checklist item — 1–3 lines.
   tools/plot_lidar.py written (ready for sim logs).
 - 2026-10-05 — pytest: **63 passed**.
 
+- 2026-10-06 — Phase 2.1 — Webots R2025a found at D:\RI_CyberBotics\Webots and
+  driven from the CLI. Generator fixed: `utf8` header, colliding floor,
+  WorldInfo caster ContactProperties, unique solid names, DYN_OBSTACLE moved
+  off the south wall. Writes warehouse.wbt + warehouse_drive_test.wbt
+  (same world, robot controller = drive_test). Opens with 0 warnings.
+- 2026-10-06 — Phase 2.2 — drive_test `snapshot` mode (supervisor sets the
+  Viewpoint, `exportImage`) → docs/evidence/world_topdown.png, world_angle.png.
+- 2026-10-06 — Phase 2.3 — drive_test `worldcheck` mode: "world matches config".
+- 2026-10-06 — Phase 3.1 — casters given collision + physics; `stability`
+  mode: 10 s at rest, 0.00 mm drift, 0.000 deg tilt.
+- 2026-10-06 — Phase 3.2 — sequence run: forward = +x, spin-left = +yaw (ENU
+  confirmed). drive_test rewritten (Supervisor, repo-root log paths, fixed
+  `writerows` header bug, per-second pose print).
+- 2026-10-06 — Phase 3.3 — first run showed ω −14.2 % (cylinder wheel contact
+  at outer rim ⇒ L_eff = L + width; confirmed with half-width wheels −7.6 %).
+  Wheel boundingObject → Sphere: v, ω now within −0.9 %. Measurement switched
+  to per-step signed/wrapped differences (old chord method lost the sign on
+  reverse and wrapped on long spins). Table: docs/evidence/kinematics_validation.md.
+- 2026-10-06 — Phase 3.4 — odometry re-initialised to GPS pose per trajectory;
+  drift 0.8 cm line / 2.2 cm + 4.7 deg square / 1.1 cm arc →
+  docs/evidence/odometry_vs_gps.png, metrics.md (analyze_logs.py updated).
+- 2026-10-06 — Phase 3.5 [P2] — Pen trail NOT done (needs a textured floor).
+- 2026-10-06 — Found for Phase 6: intellibot_controller/controller.py shadows
+  the Webots `controller` module → mission controller import will fail
+  until it is renamed.
+- 2026-10-06 — pytest: **63 passed** (Python 3.11).
+
+- 2026-10-06 — Rename — intellibot_controller/controller.py ->
+  waypoint_follower.py (it shadowed the Webots `controller` module so the
+  mission controller could not start). Mission log now written to repo-root
+  logs/run.csv.
+- 2026-10-06 — World lighting — first mission run: "package never found".
+  drive_test `capture` mode showed package faces at HSV value ~46 (one light,
+  faces toward the robot unlit). Added a second opposed directional light;
+  all 3 packages detected. Screenshots (2.2) retaken.
+- 2026-10-06 — First full mission run — IDLE→FIND→NAVIGATE→PICK→DELIVER→DONE
+  in 61.7 s sim time, 7.14 m, replans=0. Package estimate 0.6 m short
+  (suspected LiDAR ray order, Phase 4.2). Not yet ticked in the checklist.
+
 ## Pending simulator runs (human operator)
 
 Everything in README "Run" section: open world, drive_test (sequence/

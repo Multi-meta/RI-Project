@@ -49,24 +49,24 @@ Build and test these first; they are independent of the simulator.
 
 ## Phase 2 — Warehouse world [P0]
 
-- [ ] **2.1 `tools/generate_world.py`.** Reads `config.py` and writes `worlds/warehouse.wbt` using the header from 0.5: arena + walls, 4 shelves, 2 crates, pickup patch, packages P1–P3 (pure red/green/blue, each with `DEF`, `boundingObject`, `physics`), Zone A (yellow) / Zone B (cyan) patches (no collision), flat lighting with **no cast shadows**, `basicTimeStep 16`. Add a (non-colliding or far-parked) `DEF DYN_OBSTACLE` only if trivial — otherwise leave for final.
+- [x] **2.1 `tools/generate_world.py`.** Reads `config.py` and writes `worlds/warehouse.wbt` using the header from 0.5: arena + walls, 4 shelves, 2 crates, pickup patch, packages P1–P3 (pure red/green/blue, each with `DEF`, `boundingObject`, `physics`), Zone A (yellow) / Zone B (cyan) patches (no collision), flat lighting with **no cast shadows**, `basicTimeStep 16`. Add a (non-colliding or far-parked) `DEF DYN_OBSTACLE` only if trivial — otherwise leave for final.
   *Done when:* the world opens in Webots with zero warnings in the console and matches the layout table in `project_summary.md` §7.
-- [ ] **2.2 [P0] Visual check + evidence.** Take a top-down screenshot and an angled screenshot → `docs/evidence/world_topdown.png`, `world_angle.png`.
+- [x] **2.2 [P0] Visual check + evidence.** Take a top-down screenshot and an angled screenshot → `docs/evidence/world_topdown.png`, `world_angle.png`.
   *Done when:* files exist; all objects are where `config.py` says.
-- [ ] **2.3 [P1] World/config consistency check** (runs from the controller via Supervisor at startup, behind a config flag): for each `DEF` object compare `getPosition()` with `config.py`; warn on mismatch > 1 cm.
+- [x] **2.3 [P1] World/config consistency check** (runs from the controller via Supervisor at startup, behind a config flag): for each `DEF` object compare `getPosition()` with `config.py`; warn on mismatch > 1 cm.
   *Done when:* check prints "world matches config" on a clean run.
 
 ---
 
 ## Phase 3 — Robot, locomotion, kinematics validation [P0]
 
-- [ ] **3.1 Robot node** (inside the generator, or as a separate `tools/robot_def` snippet merged by it): `DEF INTELLIBOT Robot { supervisor TRUE, controller "intellibot_controller" }` with body, 2 wheels (HingeJoint + RotationalMotor + PositionSensor + wheel Solid with physics), 2 zero-friction passive casters, `Lidar`, `Camera`, `GPS`, `InertialUnit`, using device names from `config.py` (spec §8).
+- [x] **3.1 Robot node** (inside the generator, or as a separate `tools/robot_def` snippet merged by it): `DEF INTELLIBOT Robot { supervisor TRUE, controller "intellibot_controller" }` with body, 2 wheels (HingeJoint + RotationalMotor + PositionSensor + wheel Solid with physics), 2 zero-friction passive casters, `Lidar`, `Camera`, `GPS`, `InertialUnit`, using device names from `config.py` (spec §8).
   *Done when:* robot sits stably on the floor at start with no jitter or drift when motors are 0 (watch for 10 s).
-- [ ] **3.2 `controllers/drive_test/drive_test.py`** — minimal controller (separate folder) that sets motors in velocity mode and runs a scripted sequence: forward 2 s, spin left 2 s, arc, reverse, stop; prints GPS/IMU pose each second.
+- [x] **3.2 `controllers/drive_test/drive_test.py`** — minimal controller (separate folder) that sets motors in velocity mode and runs a scripted sequence: forward 2 s, spin left 2 s, arc, reverse, stop; prints GPS/IMU pose each second.
   *Done when:* robot executes the sequence; forward = +x, left spin increases yaw (CCW positive) — confirm sign conventions and write them in `docs/webots_findings.md`.
-- [ ] **3.3 [P0] Kinematics validation.** For commands (v,ω) ∈ {(0.2,0), (0,1.0), (0.2,0.5), (−0.1,0)}: convert with `inverse_kinematics`, run for ≥3 s after settling, estimate measured v and ω from GPS/IMU finite differences, log to `logs/kinematics_test.csv`.
+- [x] **3.3 [P0] Kinematics validation.** For commands (v,ω) ∈ {(0.2,0), (0,1.0), (0.2,0.5), (−0.1,0)}: convert with `inverse_kinematics`, run for ≥3 s after settling, estimate measured v and ω from GPS/IMU finite differences, log to `logs/kinematics_test.csv`.
   *Done when:* a table of commanded vs measured v, ω with % error is saved to `docs/evidence/kinematics_validation.md` (expect < ~5–10 %; if larger, investigate wheel radius/separation/slip and fix `config.py`).
-- [ ] **3.4 [P0] Odometry vs ground truth.** Implement encoder odometry in the main controller path (or in drive_test); run line, square, and arc trajectories; log odometry and GPS+IMU pose.
+- [x] **3.4 [P0] Odometry vs ground truth.** Implement encoder odometry in the main controller path (or in drive_test); run line, square, and arc trajectories; log odometry and GPS+IMU pose.
   *Done when:* overlay plot `docs/evidence/odometry_vs_gps.png` + final error numbers saved.
 - [ ] **3.5 [P2] Pen trail:** add a `Pen` node (see `pen` sample) to draw the robot's actual path on the floor, controllable on/off. Useful for the demo visual.
 
@@ -101,7 +101,7 @@ Build and test these first; they are independent of the simulator.
 
 ## Phase 5 — Motion control [P0]
 
-- [ ] **5.1 `controller.py` — `WaypointFollower`** per §10.6: PID heading, speed shaping, turn-in-place threshold, waypoint/goal tolerance, `status` (`FOLLOWING`/`BLOCKED`/`REACHED`), cross-track error.
+- [ ] **5.1 `waypoint_follower.py` — `WaypointFollower`** per §10.6: PID heading, speed shaping, turn-in-place threshold, waypoint/goal tolerance, `status` (`FOLLOWING`/`BLOCKED`/`REACHED`), cross-track error.
   *Done when:* pure-logic tests with a simulated unicycle model (use `forward_kinematics`/odometry equations) show the follower reaching a multi-waypoint path without Webots.
 - [ ] **5.2 [P0] Live test on hand-given waypoints** (a square and an L-shape in free space) using the real robot, GPS+IMU pose, `inverse_kinematics`, motors. Log run CSV.
   *Done when:* robot reaches all waypoints within tolerance; no spinning/oscillation at waypoints.

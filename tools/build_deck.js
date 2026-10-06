@@ -114,7 +114,7 @@ function bulletList(s, items, x, y, w, h, opts = {}) {
     ["Sensors", "LiDAR · camera · GPS/IMU · encoders", 0.5, 1.55],
     ["perception.py", "device wrappers BGRA\u2192BGR, ray angles", 2.25, 2.05],
     ["decision_maker.py", "FSM: mission states & goals", 4.5, 2.05],
-    ["controller.py", "WaypointFollower: PID heading", 6.75, 2.05],
+    ["waypoint_follower.py", "WaypointFollower: PID heading", 6.75, 2.05],
     ["kinematics.py", "(v, \u03C9) \u2192 wheel speeds", 9.0, 2.05],
     ["Motors", "left/right + encoders", 11.25, 1.58],
   ];
@@ -153,7 +153,7 @@ function bulletList(s, items, x, y, w, h, opts = {}) {
   titleBar(s, "Build status", "Everything P0 is coded, modular and unit-tested");
 
   const cols = [
-    ["A — Simulation & Control", ["generate_world.py \u2192 warehouse.wbt", "custom diff-drive robot (LiDAR, camera, GPS, IMU, encoders)", "kinematics.py · pid.py", "controller.py — WaypointFollower", "drive_test: sequence / kinematics / odometry"]],
+    ["A — Simulation & Control", ["generate_world.py \u2192 warehouse.wbt", "custom diff-drive robot (LiDAR, camera, GPS, IMU, encoders)", "kinematics.py · pid.py", "waypoint_follower.py — WaypointFollower", "drive_test: sequence / kinematics / odometry"]],
     ["B — Perception", ["perception.py — device wrappers", "detector.py — HSV, red two-range, zone-disjoint", "estimation.py — pixel \u2192 bearing \u2192 range \u2192 world", "LiDAR sector queries + safety stop", "eval_detector.py + frame capture pipeline"]],
     ["C — Planning & Decisions", ["mapping.py — grid, circular inflation", "a_star.py — octile, no corner cutting + Dijkstra", "path_utils.py — LOS simplify, resample", "decision_maker.py — full FSM + mission report", "intellibot_controller.py — integration loop"]],
   ];

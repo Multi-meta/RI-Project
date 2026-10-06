@@ -25,7 +25,7 @@
 
 ## Question triage
 
-- Kinematics/control → person A (kinematics.py, controller.py)
+- Kinematics/control → person A (kinematics.py, waypoint_follower.py)
 - Perception/vision → person B (perception.py, detector.py, estimation.py)
 - Planning/FSM/integration → person C (mapping.py, a_star.py, decision_maker.py)
 - Anything unmeasured: say so honestly and point to the tool that measures it.

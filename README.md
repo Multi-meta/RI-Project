@@ -21,7 +21,7 @@ controllers/intellibot_controller/    # main controller (folder name == entry fi
     mapping.py a_star.py path_utils.py#   pure: grid, planner, post-processing
     warehouse_grid.py                 #   pure: real warehouse grid from config
     detector.py estimation.py         #   pure: HSV detection, pixel→world
-    controller.py decision_maker.py   #   pure: waypoint follower, FSM
+    waypoint_follower.py decision_maker.py #   pure: waypoint follower, FSM
     perception.py                     #   Webots device wrappers
     logger.py                         #   CSV logging
 controllers/drive_test/               # scripted motion + validation controller
@@ -54,8 +54,12 @@ The world is generated from `config.py` so the simulator and the planner's
 map can never disagree:
 
 ```bash
-python tools/generate_world.py        # writes worlds/warehouse.wbt
+python tools/generate_world.py        # writes worlds/warehouse.wbt (+ warehouse_drive_test.wbt)
 ```
+
+Both worlds are identical except for the robot's controller:
+`warehouse.wbt` runs `intellibot_controller` (mission),
+`warehouse_drive_test.wbt` runs `drive_test` (Phase 2/3 validation).
 
 ## Run the mission demo
 
@@ -75,18 +79,24 @@ interpreter.
 
 ## Run the validation controllers (drive_test)
 
-Set the mode via environment variable before starting Webots (or edit the
-default in `drive_test.py`):
+Use the `warehouse_drive_test.wbt` world and pick the mode with an
+environment variable (Git Bash shown; webots.exe lives in
+`<Webots>/msys64/mingw64/bin/`). Outputs go to the repo-root `logs/` and
+`docs/evidence/`:
 
 ```bash
-DRIVE_TEST_MODE=sequence    webots worlds/warehouse.wbt   # scripted motions
-DRIVE_TEST_MODE=kinematics  webots worlds/warehouse.wbt   # logs/kinematics_test.csv
-DRIVE_TEST_MODE=odometry    webots worlds/warehouse.wbt   # logs/odometry.csv
+W="webots --batch --mode=fast --stdout --stderr --minimize worlds/warehouse_drive_test.wbt"
+DRIVE_TEST_MODE=worldcheck  $W   # Phase 2.3: "[WORLD CHECK] world matches config"
+DRIVE_TEST_MODE=stability   $W   # Phase 3.1: 10 s at rest -> logs/stability.csv
+DRIVE_TEST_MODE=sequence    $W   # Phase 3.2: forward/spin/arc/reverse, prints pose
+DRIVE_TEST_MODE=kinematics  $W   # Phase 3.3: -> logs/kinematics_test.csv
+DRIVE_TEST_MODE=odometry    $W   # Phase 3.4: -> logs/odometry.csv
+DRIVE_TEST_MODE=snapshot webots --batch --mode=realtime --stdout --stderr worlds/warehouse_drive_test.wbt
+                                 # Phase 2.2: world_topdown.png / world_angle.png (needs rendering)
+python tools/analyze_logs.py     # tables + odometry_vs_gps.png + kinematics_validation.md
 ```
 
-Note: to change the mode you can also temporarily edit
-`controllers/drive_test/drive_test.py` (`os.environ.get("DRIVE_TEST_MODE",
-"sequence")`) if your shell doesn't propagate the variable to Webots.
+Opening the world from the Webots GUI runs `sequence` (the default mode).
 
 ## Run tests (no Webots needed)
 
@@ -115,10 +125,13 @@ python tools/eval_detector.py         # detector_eval.md (after frame capture)
 
 ## Known limitations (honest list)
 
-- Webots was not runnable on the build machine — all simulator-dependent
-  numbers (kinematics error, LiDAR accuracy, detector rates on REAL frames,
-  cross-track error, success rate) are **pending measurement**; the tools
-  above produce them from real logs. See `docs/webots_findings.md`.
+- Measured in Webots so far: world/config consistency, rest stability,
+  kinematics (v, ω within 0.9 %) and odometry drift (Phases 2–3). Still
+  **pending measurement**: LiDAR accuracy, detector rates on real frames,
+  cross-track error, mission success rate. See `docs/webots_findings.md`.
+- First full mission run (2026-10-06) reached DONE in 61.7 s sim time, but
+  the package position estimate was ~0.6 m short (LiDAR ray order still
+  unverified, Phase 4.2). Pickup is still a placeholder.
 - Localization uses GPS+IMU (idealized); wheel odometry is implemented and
   validated against it. A real robot needs odometry+LiDAR localization/SLAM.
 - Pickup is a placeholder in the mid-eval (attach mechanism = final eval).

@@ -6,7 +6,7 @@ import pytest
 
 import config
 import kinematics as k
-from controller import WaypointFollower
+from waypoint_follower import WaypointFollower
 
 
 class Unicycle:

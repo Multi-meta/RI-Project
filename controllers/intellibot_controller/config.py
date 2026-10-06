@@ -104,6 +104,7 @@ RIGHT_ENCODER = "right_encoder"
 # Final-eval devices (placeholders)
 BUMPER_NAME = "bumper"
 DYN_OBSTACLE_DEF = "DYN_OBSTACLE"
+DYN_OBSTACLE_PARK = (3.5, 2.6)                # free NE corner, off every route
 
 DEVICE_NAMES = {
     "lidar": LIDAR_NAME, "camera": CAMERA_NAME, "gps": GPS_NAME, "imu": IMU_NAME,
@@ -176,6 +177,43 @@ TASK_PACKAGE_DEF = "PKG_P3"
 TASK_PACKAGE_COLOR = "blue"
 TASK_ZONE = "B"
 AUTO_QUIT = True                              # simulationQuit(0) at DONE
+
+# ------------------------------------------------------- 11. Viewpoints ---
+def _look_at(eye, target):
+    """Webots Viewpoint (position, axis-angle orientation) looking from eye to
+    target with world +z up. Viewpoint frame: x = view direction, z = up."""
+    fx, fy, fz = (t - e for t, e in zip(target, eye))
+    n = math.sqrt(fx * fx + fy * fy + fz * fz)
+    f = (fx / n, fy / n, fz / n)
+    up = (0.0, 0.0, 1.0) if abs(f[2]) < 0.999 else (0.0, 1.0, 0.0)
+    lx, ly, lz = (up[1] * f[2] - up[2] * f[1], up[2] * f[0] - up[0] * f[2],
+                  up[0] * f[1] - up[1] * f[0])               # left = up x f
+    n = math.sqrt(lx * lx + ly * ly + lz * lz)
+    lft = (lx / n, ly / n, lz / n)
+    u = (f[1] * lft[2] - f[2] * lft[1], f[2] * lft[0] - f[0] * lft[2],
+         f[0] * lft[1] - f[1] * lft[0])                      # up = f x left
+    # rotation matrix columns = (f, left, up) -> axis-angle
+    m = [[f[0], lft[0], u[0]], [f[1], lft[1], u[1]], [f[2], lft[2], u[2]]]
+    ang = math.acos(max(-1.0, min(1.0, (m[0][0] + m[1][1] + m[2][2] - 1) / 2)))
+    if ang < 1e-9:
+        axis = (0.0, 0.0, 1.0)
+    elif math.pi - ang < 1e-6:                               # 180 deg case
+        d = [math.sqrt(max(0.0, (m[i][i] + 1) / 2)) for i in range(3)]
+        i = d.index(max(d))
+        axis = [m[i][j] / (2 * d[i]) if j != i else d[i] for j in range(3)]
+        axis = tuple(axis)
+    else:
+        s = 2 * math.sin(ang)
+        axis = ((m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s,
+                (m[1][0] - m[0][1]) / s)
+    pos = " ".join(f"{v:.4f}" for v in eye)
+    ori = " ".join(f"{v:.4f}" for v in axis) + f" {ang:.4f}"
+    return pos, ori
+
+
+# shifted right of center so the camera overlay (top-left) covers empty floor
+VIEW_TOPDOWN = _look_at((-1.0, -0.001, 14.5), (-1.0, 0.0, 0.0))
+VIEW_ANGLED = _look_at((-2.5, -7.0, 8.5), (0.3, 0.2, 0.0))
 
 # ------------------------------------------------------- 10. Final-eval hooks ---
 PICK_DISTANCE_THRESHOLD = 0.18                # final: attach distance

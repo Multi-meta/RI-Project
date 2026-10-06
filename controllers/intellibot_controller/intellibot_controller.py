@@ -10,7 +10,9 @@ import os
 import sys
 
 # Webots sets the controller folder as CWD for imports; keep module dir importable
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.normpath(os.path.join(_HERE, "..", ".."))
+sys.path.insert(0, _HERE)
 
 from controller import Supervisor  # noqa: E402  (Webots API)
 
@@ -49,7 +51,7 @@ def main():
                                                     scan, angles)
 
     fsm = DecisionMaker(planner, estimator, grid=grid)
-    logger = RunLogger(os.path.join("logs", "run.csv")).start()
+    logger = RunLogger(os.path.join(_ROOT, "logs", "run.csv")).start()
 
     log_every = max(1, int(0.1 / (timestep / 1000.0)))  # ~10 Hz
     step_i = 0

@@ -5,7 +5,7 @@
 ```
                     ┌────────────────────────── Webots simulator ──────────────────────────┐
                     │                                                                      │
-   sensors ──►  perception.py ──► decision_maker.py (FSM) ──► planner (A*) ──► controller.py
+   sensors ──►  perception.py ──► decision_maker.py (FSM) ──► planner (A*) ──► waypoint_follower.py
    (LiDAR,       (device         (state logic, goals)       (path_utils     (WaypointFollower,
    camera,       wrappers +      │                           on occupancy     PID heading)
    GPS/IMU,      BGRA→BGR,       │                           grid)               │
@@ -108,7 +108,7 @@ check.
 **Interface:** `get_pose()`, `get_lidar()`, `get_detections()`,
 `set_wheel_speeds()`.
 
-### controller.py — [A]
+### waypoint_follower.py — [A]
 **What:** `WaypointFollower` — PID heading control, speed shaping
 (cos-error × slowdown), turn-in-place threshold, waypoint/goal tolerances,
 cross-track error metric, LiDAR safety stop (front ±30° < 0.30 m → v=0,

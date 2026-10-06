@@ -1,4 +1,4 @@
-"""controller.py — WaypointFollower: PID heading control along waypoints.
+"""waypoint_follower.py — WaypointFollower: PID heading control along waypoints.
 
 Pure logic (no Webots): per step it takes the robot pose and the current
 LiDAR scan, and returns the commanded body twist (v, w).

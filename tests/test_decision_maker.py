@@ -10,7 +10,7 @@ import pytest
 
 import config
 import kinematics as k
-from controller import WaypointFollower
+from waypoint_follower import WaypointFollower
 from decision_maker import DecisionMaker
 
 
@@ -128,10 +128,10 @@ def test_blocked_in_navigate_is_error():
         self.status = "BLOCKED"
         return 0.0, 0.0
 
-    import controller
-    controller.WaypointFollower.update = blocked_update
+    import waypoint_follower
+    waypoint_follower.WaypointFollower.update = blocked_update
     try:
         states, final = run_fsm(fsm, sim, detections=[FakeDet()])
     finally:
-        controller.WaypointFollower.update = real_update
+        waypoint_follower.WaypointFollower.update = real_update
     assert final == "ERROR"

@@ -17,7 +17,7 @@ BLOCKED status is the designated re-planning hook for the final eval.
 import math
 
 import config
-from controller import WaypointFollower
+from waypoint_follower import WaypointFollower
 from logger import transition
 
 

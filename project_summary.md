@@ -175,7 +175,7 @@ RI-Project/
 │       ├── path_utils.py              # smoothing, grid→world waypoints, path length (pure)
 │       ├── detector.py                # OpenCV HSV package detector on ndarray      (pure)
 │       ├── perception.py              # Webots wrappers: LiDAR, camera, GPS/IMU     (Webots)
-│       ├── controller.py              # WaypointFollower (PID heading, speed shaping)(pure logic)
+│       ├── waypoint_follower.py       # WaypointFollower (PID heading, speed shaping)(pure logic)
 │       ├── decision_maker.py          # FSM                                         (pure logic)
 │       └── logger.py                  # CSV + console logging
 ├── drive_test/ (optional extra controllers: e.g. controllers/drive_test/drive_test.py)
@@ -265,7 +265,7 @@ Standard `PID(kp, ki, kd, out_min, out_max)` with integral clamp (anti-windup) a
 - Optional: waypoint spacing/smoothing for "trajectory generation" (e.g., resample at 0.3 m spacing, or light corner smoothing that stays collision-free).
 - Convert to world waypoints (cell centers); `path_length(waypoints)`.
 
-### 10.6 Waypoint follower (`controller.py`)
+### 10.6 Waypoint follower (`waypoint_follower.py`)
 Per step, given pose and current waypoint:
 ```
 dx, dy = wp - pos;  dist = hypot(dx, dy)
@@ -389,7 +389,7 @@ All logged to `logs/` and summarized by `tools/analyze_logs.py` into `docs/evide
 
 | Person | Area | Modules / files |
 |---|---|---|
-| **A — Simulation & Control** | world, robot, kinematics, motion control | `generate_world.py`, `warehouse.wbt`, robot definition, `kinematics.py`, `pid.py`, `controller.py`, drive tests |
+| **A — Simulation & Control** | world, robot, kinematics, motion control | `generate_world.py`, `warehouse.wbt`, robot definition, `kinematics.py`, `pid.py`, `waypoint_follower.py`, drive tests |
 | **B — Perception** | LiDAR, camera, vision, validation | `perception.py`, `detector.py`, `eval_detector.py`, `plot_lidar.py`, detector/lidar tests |
 | **C — Planning & Decisions** | grid, A\*, FSM, integration | `mapping.py`, `a_star.py`, `path_utils.py`, `decision_maker.py`, `intellibot_controller.py`, `plot_astar.py` |
 

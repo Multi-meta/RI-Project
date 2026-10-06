@@ -1,14 +1,18 @@
-"""generate_world.py — write worlds/warehouse.wbt from config.py.
+"""generate_world.py — write the warehouse worlds from config.py.
 
 The world is GENERATED so the simulated world and the occupancy grid can
 never disagree (project_summary.md rule 3). Everything is built from
 primitive nodes (Solid / Shape / Box / Cylinder / Sphere) to avoid
 EXTERNPROTO dependencies across Webots versions.
 
+Two worlds are written, identical except for the robot's controller:
+    worlds/warehouse.wbt             controller "intellibot_controller" (mission)
+    worlds/warehouse_drive_test.wbt  controller "drive_test" (Phase 3 validation;
+                                     mode via DRIVE_TEST_MODE env var)
+
 Run:  python tools/generate_world.py
 """
 
-import math
 import os
 import sys
 
@@ -16,10 +20,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "controllers", "intellibot_controller"))
 import config  # noqa: E402
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                   "worlds", "warehouse.wbt")
+WORLDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                          "worlds")
+WORLDS = {
+    "warehouse.wbt": "intellibot_controller",
+    "warehouse_drive_test.wbt": "drive_test",
+}
 
-# BGR not needed here; these are Webots RGB 0..1
+# Webots RGB 0..1
+VIEW_ANGLED = config.VIEW_ANGLED
+
 COLORS = {
     "floor": (0.5, 0.5, 0.5),
     "wall": (0.75, 0.75, 0.75),
@@ -34,28 +44,26 @@ COLORS = {
     "body": (0.15, 0.35, 0.7),
     "wheel": (0.1, 0.1, 0.1),
     "caster": (0.3, 0.3, 0.3),
+    "sensor": (0.05, 0.05, 0.05),
 }
 
-
-def mat(color, name=None):
-    def_name = f" DEF {name}" if name else ""
-    return (f"Appearance{{{def_name} material Material{{diffuseColor "
-            f"{color[0]:g} {color[1]:g} {color[2]:g} }}}}")
+CASTER_MATERIAL = "caster"          # zero-friction contact material
 
 
-def solid(defname, translation, size, color, physics=None,
-          bounding=True, rotation=None, name=None):
-    """Axis-aligned box Solid."""
+def mat(color):
+    return (f"Appearance {{ material Material {{ diffuseColor "
+            f"{color[0]:g} {color[1]:g} {color[2]:g} }} }}")
+
+
+def solid(defname, translation, size, color, physics=None, bounding=True):
+    """Axis-aligned box Solid. `name` = lower-case DEF so names are unique."""
     s = f"DEF {defname} Solid {{\n"
     s += f"  translation {translation}\n"
-    if rotation:
-        s += f"  rotation {rotation}\n"
-    if name:
-        s += f"  name \"{name}\"\n"
     s += ("  children [\n"
           f"    Shape {{ appearance {mat(color)} "
           f"geometry Box {{ size {size} }} }}\n"
           "  ]\n")
+    s += f"  name \"{defname.lower()}\"\n"
     if bounding:
         s += f"  boundingObject Box {{ size {size} }}\n"
     if physics:
@@ -64,172 +72,182 @@ def solid(defname, translation, size, color, physics=None,
     return s
 
 
-def build_robot():
-    """DEF INTELLIBOT — differential-drive robot per project_summary §8."""
+def build_robot(controller):
+    """DEF INTELLIBOT — differential-drive robot per project_summary §8.
+
+    Support: 2 driven wheels on the center axle + 2 passive caster spheres
+    (front/rear) whose contact material has zero friction (WorldInfo
+    contactProperties), so the robot rests on 4 points but only the wheels
+    produce traction.
+    """
     r, L = config.WHEEL_RADIUS, config.WHEEL_SEPARATION
     bl, bw, bh = config.BODY_LENGTH, config.BODY_WIDTH, config.BODY_HEIGHT
     cr = config.CASTER_RADIUS
-    # body bottom sits above ground; wheels (r) and casters (cr) touch z=0
-    body_z = r + 0.03
-    wheel_y = L / 2.0
-    wheel_x = 0.0
-    caster_x = bl / 2.0 - 0.06
+    body_z = cr + bh / 2.0          # body bottom flush with caster centers
+    caster_x = bl / 2.0 - 0.04
 
-    max_vel = config.MAX_WHEEL_SPEED
-    wheel_geo = (f"Transform {{ rotation 1 0 0 1.5708 children [ "
-                 f"Shape {{ appearance {mat(COLORS['wheel'])} geometry "
-                 f"Cylinder {{ height {config.WHEEL_WIDTH} radius {r} "
-                 f"subdivision 24 }} }} ] }}")
+    def cyl_y(radius, height, color):
+        """Cylinder with its axis along robot y (wheel orientation)."""
+        return (f"Pose {{ rotation 1 0 0 1.5708 children [ "
+                f"Shape {{ appearance {mat(color)} geometry "
+                f"Cylinder {{ height {height} radius {radius} subdivision 24 }} }} ] }}")
 
-    def wheel(side, sign):
-        y = wheel_y * sign
-        return f"""
-    HingeJoint {{
+    def wheel(sign):
+        side = "left" if sign > 0 else "right"
+        y = (L / 2.0) * sign
+        return f"""    HingeJoint {{
       jointParameters HingeJointParameters {{
         axis 0 1 0
-        anchor {wheel_x} {y} {r}
+        anchor 0 {y} {r}
       }}
       device [
-        RotationalMotor {{ name "{ 'left_motor' if sign > 0 else 'right_motor' }"
-          maxVelocity {max_vel} maxTorque 5.0 }}
-        PositionSensor {{ name "{ 'left_encoder' if sign > 0 else 'right_encoder' }" }}
+        RotationalMotor {{ name "{side}_motor" maxVelocity {config.MAX_WHEEL_SPEED} maxTorque 5.0 }}
+        PositionSensor {{ name "{side}_encoder" }}
       ]
       endPoint Solid {{
-        translation {wheel_x} {y} {r}
-        children [ {wheel_geo} ]
-        name "{ 'left_wheel' if sign > 0 else 'right_wheel' }"
-        boundingObject Transform {{ rotation 1 0 0 1.5708 children [
-          Cylinder {{ height {config.WHEEL_WIDTH} radius {r} subdivision 24 }} ] }}
+        translation 0 {y} {r}
+        children [ {cyl_y(r, config.WHEEL_WIDTH, COLORS['wheel'])} ]
+        name "{side}_wheel"
+        # collision = sphere of the wheel radius: ONE contact point exactly at
+        # y = +-L/2. A cylinder contacts the floor at its outer rim, which made
+        # the effective track width L + WHEEL_WIDTH (measured -14 % yaw rate).
+        boundingObject Sphere {{ radius {r} subdivision 3 }}
         physics Physics {{ density -1 mass 0.1 }}
       }}
     }}"""
 
+    def caster(name, x):
+        return f"""    Solid {{
+      translation {x} 0 {cr}
+      children [ Shape {{ appearance {mat(COLORS['caster'])}
+        geometry Sphere {{ radius {cr} subdivision 2 }} }} ]
+      name "{name}"
+      contactMaterial "{CASTER_MATERIAL}"
+      boundingObject Sphere {{ radius {cr} subdivision 2 }}
+      physics Physics {{ density -1 mass 0.02 }}
+    }}"""
+
+    cam_vis = (f"Pose {{ translation -0.01 0 0 children [ Shape {{ appearance "
+               f"{mat(COLORS['sensor'])} geometry Box {{ size 0.02 0.04 0.03 }} }} ] }}")
+
     return f"""DEF INTELLIBOT Robot {{
   translation {config.ROBOT_START[0]} {config.ROBOT_START[1]} 0
   rotation 0 0 1 {config.ROBOT_START[2]}
-  supervisor TRUE
-  controller "intellibot_controller"
   children [
-    Transform {{ translation 0 0 {body_z}
+    Pose {{ translation 0 0 {body_z}
       children [ Shape {{ appearance {mat(COLORS['body'])} geometry Box {{ size {bl} {bw} {bh} }} }} ] }}
-    DEF LIDAR_MOUNT Transform {{
+    Lidar {{
       translation 0 0 {config.LIDAR_MOUNT_Z}
-      children [
-        Lidar {{
-          name "{config.LIDAR_NAME}"
-          rotation 0 1 0 0
-          horizontalResolution {config.LIDAR_RAYS}
-          numberOfLayers 1
-          minRange {config.LIDAR_MIN_RANGE}
-          maxRange {config.LIDAR_MAX_RANGE}
-          fieldOfView {config.LIDAR_FOV}
-        }}
-      ]
+      name "{config.LIDAR_NAME}"
+      horizontalResolution {config.LIDAR_RAYS}
+      fieldOfView {config.LIDAR_FOV:.6f}
+      numberOfLayers 1
+      verticalFieldOfView 0.1
+      minRange {config.LIDAR_MIN_RANGE}
+      maxRange {config.LIDAR_MAX_RANGE}
     }}
-    DEF CAM_MOUNT Transform {{
+    Camera {{
       translation {config.CAMERA_MOUNT_X} 0 {config.CAMERA_MOUNT_Z}
-      children [
-        Camera {{
-          name "{config.CAMERA_NAME}"
-          rotation 0 1 0 0
-          width {config.CAMERA_WIDTH}
-          height {config.CAMERA_HEIGHT}
-          fieldOfView {config.CAMERA_FOV}
-        }}
-      ]
+      children [ {cam_vis} ]
+      name "{config.CAMERA_NAME}"
+      fieldOfView {config.CAMERA_FOV}
+      width {config.CAMERA_WIDTH}
+      height {config.CAMERA_HEIGHT}
     }}
     GPS {{ name "{config.GPS_NAME}" }}
     InertialUnit {{ name "{config.IMU_NAME}" }}
-    DEF CASTER_FRONT Transform {{
-      translation {caster_x} 0 {cr}
-      children [ Shape {{ appearance {mat(COLORS['caster'])}
-        geometry Sphere {{ radius {cr} subdivision 12 }} }} ]
-    }}
-    DEF CASTER_REAR Transform {{
-      translation {-caster_x} 0 {cr}
-      children [ Shape {{ appearance {mat(COLORS['caster'])}
-        geometry Sphere {{ radius {cr} subdivision 12 }} }} ]
-    }}
-{wheel('left', +1)},
-{wheel('right', -1)}
+{caster("caster_front", caster_x)}
+{caster("caster_rear", -caster_x)}
+{wheel(+1)}
+{wheel(-1)}
   ]
   name "INTELLIBOT"
-  boundingObject Transform {{ translation 0 0 {body_z} children [
+  boundingObject Pose {{ translation 0 0 {body_z} children [
     Box {{ size {bl} {bw} {bh} }} ] }}
-  physics Physics {{ density -1 mass {config.BODY_MASS}
-    contactProperties [ ContactProperties {{ coulombFriction [ 0, 0 ] }} ] }}
+  physics Physics {{ density -1 mass {config.BODY_MASS} }}
+  controller "{controller}"
+  supervisor TRUE
 }}"""
 
 
-def main():
+def build_world(controller):
     w = []
-    w.append("#VRML_SIM R2025a")
+    w.append("#VRML_SIM R2025a utf8")
     w.append("")
-    w.append("# warehouse.wbt — GENERATED by tools/generate_world.py. DO NOT EDIT BY HAND.")
+    w.append("# GENERATED by tools/generate_world.py from config.py. DO NOT EDIT BY HAND.")
     w.append("# Regenerate with: python tools/generate_world.py")
     w.append("")
-    w.append(f"WorldInfo {{ coordinateSystem \"ENU\" basicTimeStep "
-             f"{config.BASIC_TIME_STEP_MS} contactProperties [] }}")
-    w.append("Viewpoint { orientation -0.35 0.75 0.55 4.4 position -7 6 7 }")
-    # flat, even lighting; NO shadows to keep HSV detection stable
-    w.append("DirectionalLight { direction 0.3 -0.4 -1 intensity 1.1 "
-             "ambientIntensity 0.7 castShadows FALSE }")
+    w.append("WorldInfo {\n"
+             "  info [ \"IntelliBot warehouse (generated)\" ]\n"
+             "  title \"IntelliWarehouse\"\n"
+             f"  basicTimeStep {config.BASIC_TIME_STEP_MS}\n"
+             "  coordinateSystem \"ENU\"\n"
+             "  contactProperties [\n"
+             f"    ContactProperties {{ material2 \"{CASTER_MATERIAL}\" coulombFriction [ 0 ] }}\n"
+             "  ]\n"
+             "}")
+    w.append(f"DEF VIEWPOINT Viewpoint {{ orientation {VIEW_ANGLED[1]} "
+             f"position {VIEW_ANGLED[0]} }}")
+    w.append("Background { skyColor [ 0.75 0.8 0.85 ] }")
+    # flat, even lighting; NO shadows to keep HSV detection stable. Two
+    # opposed directional lights so EVERY vertical face (+-x, +-y) is lit by
+    # one of them: with a single light the package faces pointing at the
+    # robot got ambient only (HSV value ~46 < detector minimum) and FIND_PACKAGE
+    # never saw them.
+    for d in ("0.3 -0.4 -1", "-0.3 0.4 -1"):
+        w.append(f"DirectionalLight {{ direction {d} intensity 0.8 "
+                 f"ambientIntensity 0.5 castShadows FALSE }}")
     w.append("")
 
-    # floor (top face at z = 0)
-    fw = (config.ARENA_X_MAX - config.ARENA_X_MIN) + 2 * config.WALL_THICKNESS
-    fh = (config.ARENA_Y_MAX - config.ARENA_Y_MIN) + 2 * config.WALL_THICKNESS
-    w.append(solid("FLOOR", f"0 0 -0.025", f"{fw} {fh} 0.05", COLORS["floor"],
-                   bounding=False))
-    # walls
-    wh = config.WALL_HEIGHT
+    # floor (top face at z = 0) — collides, everything rests on it
     t = config.WALL_THICKNESS
-    cx, cy = (config.ARENA_X_MAX + config.ARENA_X_MIN) / 2, (config.ARENA_Y_MAX + config.ARENA_Y_MIN) / 2
-    w.append(solid("WALL_N", f"{cx} {config.ARENA_Y_MAX + t / 2} {wh / 2}",
-                   f"{fw} {t} {wh}", COLORS["wall"]))
-    w.append(solid("WALL_S", f"{cx} {config.ARENA_Y_MIN - t / 2} {wh / 2}",
-                   f"{fw} {t} {wh}", COLORS["wall"]))
-    w.append(solid("WALL_E", f"{config.ARENA_X_MAX + t / 2} {cy} {wh / 2}",
-                   f"{t} {fh} {wh}", COLORS["wall"]))
-    w.append(solid("WALL_W", f"{config.ARENA_X_MIN - t / 2} {cy} {wh / 2}",
-                   f"{t} {fh} {wh}", COLORS["wall"]))
+    fw = (config.ARENA_X_MAX - config.ARENA_X_MIN) + 2 * t
+    fh = (config.ARENA_Y_MAX - config.ARENA_Y_MIN) + 2 * t
+    w.append(solid("FLOOR", "0 0 -0.025", f"{fw:g} {fh:g} 0.05", COLORS["floor"]))
+    # walls — the SAME rectangles the occupancy grid uses (config._WALLS)
+    wh = config.WALL_HEIGHT
+    for (cx, cy, sx, sy), d in zip(config._WALLS,
+                                   ("WALL_N", "WALL_S", "WALL_E", "WALL_W")):
+        w.append(solid(d, f"{cx:g} {cy:g} {wh / 2:g}", f"{sx:g} {sy:g} {wh:g}",
+                       COLORS["wall"]))
 
-    # shelves + crates
+    # shelves + crates (static: no physics)
     for x, y, sx, sy, h, d in config.SHELVES:
         w.append(solid(d, f"{x} {y} {h / 2}", f"{sx} {sy} {h}", COLORS["shelf"]))
     for x, y, sx, sy, h, d in config.CRATES:
         w.append(solid(d, f"{x} {y} {h / 2}", f"{sx} {sy} {h}", COLORS["crate"]))
 
     # floor patches — NO boundingObject (non-colliding)
-    px, py, psx, psy = config.PICKUP_AREA
-    w.append(solid("PICKUP_AREA", f"{px} {py} 0.005", f"{psx} {psy} 0.01",
-                   COLORS["pickup"], bounding=False))
-    zx, zy, zsx, zsy = config.ZONE_A
-    w.append(solid("ZONE_A", f"{zx} {zy} 0.005", f"{zsx} {zsy} 0.01",
-                   COLORS["zone_a"], bounding=False))
-    zx, zy, zsx, zsy = config.ZONE_B
-    w.append(solid("ZONE_B", f"{zx} {zy} 0.005", f"{zsx} {zsy} 0.01",
-                   COLORS["zone_b"], bounding=False))
+    for d, (px, py, psx, psy), c in (("PICKUP_AREA", config.PICKUP_AREA, "pickup"),
+                                     ("ZONE_A", config.ZONE_A, "zone_a"),
+                                     ("ZONE_B", config.ZONE_B, "zone_b")):
+        w.append(solid(d, f"{px} {py} 0.005", f"{psx} {psy} 0.01",
+                       COLORS[c], bounding=False))
 
     # packages — pushable Solids with physics
+    s = config.PKG_SIZE
     for defname, x, y, color in config.PACKAGES:
-        s = config.PKG_SIZE
-        phys = "Physics { density -1 mass 0.5 }"
         w.append(solid(defname, f"{x} {y} {s / 2}", f"{s} {s} {s}",
-                       COLORS[color], physics=phys))
+                       COLORS[color], physics="Physics { density -1 mass 0.5 }"))
 
-    # final-eval hook: dynamic obstacle, parked far away & non-colliding for now
-    w.append(solid(config.DYN_OBSTACLE_DEF, "0 -2.85 0.2", "0.4 0.4 0.4",
-                   COLORS["crate"], physics="Physics { density -1 mass 0.5 }"))
+    # final-eval hook: dynamic obstacle, parked in a free corner off every route
+    dx, dy = config.DYN_OBSTACLE_PARK
+    w.append(solid(config.DYN_OBSTACLE_DEF, f"{dx} {dy} 0.2", "0.4 0.4 0.4",
+                   COLORS["crate"], physics="Physics { density -1 mass 5 }"))
 
-    w.append(build_robot())
+    w.append(build_robot(controller))
     w.append("")
+    return "\n".join(w)
 
-    out_path = os.path.normpath(OUT)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w") as f:
-        f.write("\n".join(w))
-    print(f"wrote {out_path} ({os.path.getsize(out_path)} bytes)")
+
+def main():
+    os.makedirs(WORLDS_DIR, exist_ok=True)
+    for fname, controller in WORLDS.items():
+        out_path = os.path.normpath(os.path.join(WORLDS_DIR, fname))
+        with open(out_path, "w", newline="\n") as f:
+            f.write(build_world(controller))
+        print(f"wrote {out_path} ({os.path.getsize(out_path)} bytes, "
+              f"controller \"{controller}\")")
 
 
 if __name__ == "__main__":

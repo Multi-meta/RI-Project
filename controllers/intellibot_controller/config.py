@@ -38,6 +38,28 @@ CRATES = [
     (-0.8, -0.9, 0.4, 0.4, 0.4, "OBST_2"),
 ]
 
+# Small extra obstacles with DIFFERENT SHAPES so the robot has to steer
+# around more than axis-aligned boxes. Cylinders/spheres are entered into the
+# occupancy grid as their bounding squares (2r x 2r) — conservative and safe.
+# Positions chosen to keep every aisle >= 1.0 m and BOTH routes to Zone B
+# (asserted by tests/test_warehouse.py):
+#   * CYL_OBST_1  (1.10,  0.70) r=0.15 barrel in the NE center aisle
+#   * SPH_OBST_1  (-1.00, 0.90) r=0.15 ball north of the west lane
+#   * OBST_3      (-1.70, 0.60) 0.3 m crate north of the pickup approach
+#   * CYL_OBST_2  (1.80, -0.15) r=0.12 slim pole forcing a weave to Zone B
+# All sit in the central band (y in [-0.5, 1.2]); the outer corridors
+# (y < -1.65 and y > 2.15) stay clear for the alternate-route test.
+CYLINDERS = [                                  # (cx, cy, radius, height, DEF)
+    (1.10, 0.70, 0.15, 0.35, "CYL_OBST_1"),
+    (1.80, -0.15, 0.12, 0.25, "CYL_OBST_2"),
+]
+SPHERES = [                                    # (cx, cy, radius, DEF)
+    (-1.00, 0.90, 0.15, "SPH_OBST_1"),
+]
+CRATES_EXTRA = [                               # (cx, cy, size, height, DEF)
+    (-1.70, 0.60, 0.3, 0.3, "OBST_3"),
+]
+
 # STATIC_OBSTACLES: walls + shelves + crates, as (cx, cy, sx, sy) — the known
 # map for the occupancy grid. Walls added programmatically below so the grid
 # and the generated world always agree.
@@ -52,6 +74,9 @@ _WALLS = [
 STATIC_OBSTACLES = (
     [(x, y, sx, sy) for (x, y, sx, sy, _h, _d) in SHELVES]
     + [(x, y, sx, sy) for (x, y, sx, sy, _h, _d) in CRATES]
+    + [(x, y, 2 * r, 2 * r) for (x, y, r, _h, _d) in CYLINDERS]
+    + [(x, y, 2 * r, 2 * r) for (x, y, r, _d) in SPHERES]
+    + [(x, y, sz, sz) for (x, y, sz, _h, _d) in CRATES_EXTRA]
     + _WALLS
 )
 
@@ -139,10 +164,12 @@ LIDAR_FOV = 2.0 * math.pi
 LIDAR_MIN_RANGE = 0.05
 LIDAR_MAX_RANGE = 4.0
 LIDAR_MOUNT_Z = 0.14
-# Empirically measured on the installed Webots (see docs/webots_findings.md).
-# Assumption to verify: ray 0 points forward (+x), index increases CCW.
-LIDAR_ANGLE_SIGN = 1.0                        # +1 if CCW index order
-LIDAR_ANGLE_OFFSET = 0.0                      # rad added to computed angle
+# Empirically MEASURED via DRIVE_TEST_MODE=lidar + tools/calibrate_lidar.py
+# (2026-10-07, 1321 scans vs known map, median |err| 8 cm): the ray index
+# increases CLOCKWISE, i.e. mirrored vs the naive assumption, with a small
+# +0.02 rad offset. This was the cause of the 0.6 m package-position error.
+LIDAR_ANGLE_SIGN = -1.0                       # measured: index increases CW
+LIDAR_ANGLE_OFFSET = 0.02                     # rad, from calibration
 
 # Camera
 CAMERA_WIDTH = 320
@@ -220,3 +247,37 @@ PICK_DISTANCE_THRESHOLD = 0.18                # final: attach distance
 DYNAMIC_OBSTACLE_TRIGGER_TIME = -1.0          # s; <0 = disabled
 WORLD_CHECK_ENABLED = True                    # supervisor world/config check
 WORLD_CHECK_TOL = 0.01                        # m
+
+# --------------------------------------- 11. P2 extras: dashboard, LED -------
+DISPLAY_ENABLED = True                        # in-sim Display dashboard (6.10)
+DISPLAY_NAME = "dashboard"
+DISPLAY_WIDTH = 320
+DISPLAY_HEIGHT = 200
+LED_NAME = "status_led"                       # FSM state color indicator (6.11)
+STATE_LED = {                                 # 0xRRGGBB per FSM state
+    "IDLE": 0x888888,
+    "FIND_PACKAGE": 0x0000FF,
+    "NAVIGATE": 0x00A5FF,
+    "PICK": 0xFFA500,
+    "PLAN_DELIVERY": 0xFFFF00,
+    "DELIVER": 0x00FF88,
+    "DONE": 0x00FF00,
+    "ERROR": 0xFF0000,
+}
+
+# ------------------------------ 12. Repeatability campaign (6.8) -------------
+# Start poses (x, y, yaw) for the N>=10 runs campaign. RUN_INDEX env var
+# selects one; the supervisor teleports the robot there at startup and the
+# run logs to logs/run_<index>.csv.
+CAMPAIGN_STARTS = [
+    (0.0, -0.3, 0.0),
+    (0.5, -0.5, 0.7),
+    (-0.3, 0.2, 3.14),
+    (0.0, -1.5, 0.0),
+    (1.0, -0.3, 1.57),
+    (-1.0, -1.5, 0.0),
+    (0.0, 1.5, 3.14),
+    (2.0, 0.0, 3.14),
+    (-1.0, 1.5, -1.57),
+    (0.8, -1.2, 0.3),
+]

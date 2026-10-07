@@ -165,7 +165,7 @@ function bulletList(s, items, x, y, w, h, opts = {}) {
     bulletList(s, items, x + 0.22, y0 + 0.62, cw - 0.44, 2.85, { fontSize: 12, gap: 7 });
   });
 
-  const chips = [["3,476", "lines of Python"], ["10", "offline + sim tools"], ["7", "architecture docs"], ["1", "generated world file"]];
+  const chips = [["4,299", "lines of Python"], ["12", "offline + sim tools"], ["8", "architecture docs"], ["12", "evidence artifacts"]];
   chips.forEach(([n, l], i) => {
     const x = M + i * 3.14;
     s.addText(n, { x, y: 5.6, w: 1.6, h: 0.65, fontSize: 36, fontFace: FONT, bold: true, color: i === 0 ? ACCENT : PRIMARY, margin: 0 });
@@ -268,31 +268,29 @@ function bulletList(s, items, x, y, w, h, opts = {}) {
   titleBar(s, "Validation & challenges", "What is proven today vs. what the live runs must measure");
 
   card(s, M, 1.65, 6.05, 4.6, "ECFDF5");
-  s.addText("Verified offline — pytest, 63/63 green", { x: 0.75, y: 1.85, w: 5.6, h: 0.35, fontSize: 15, fontFace: FONT, bold: true, color: "047857", margin: 0 });
+  s.addText("Measured on the robot + 63/63 pytest green", { x: 0.75, y: 1.85, w: 5.7, h: 0.35, fontSize: 15, fontFace: FONT, bold: true, color: "047857", margin: 0 });
   bulletList(s, [
-    "Kinematics: round-trip, curvature-preserving clamping, odometry on a known circle",
-    "A* cost == Dijkstra on 60 random grids; corner-cutting impossible",
-    "Real layout: pickup \u2192 Zone B path + two distinct routes",
-    "FSM happy path IDLE \u2192 \u2026 \u2192 DONE incl. mission report; ERROR paths",
-    "Detector: correct colors/bboxes; zone hues never misfired",
+    "Kinematics error \u2264 1% on all four test commands (GPS/IMU truth)",
+    "Odometry drift: 2.2 cm / 4.7\u00B0 over the 2 m square; ~1 cm on line and arc",
+    "FULL MISSION RAN IN WEBOTS: FIND \u2192 NAVIGATE \u2192 PICK \u2192 PLAN \u2192 DELIVER \u2192 DONE (69 s, 12 obstacles); cross-track max 6.2 cm",
+    "LiDAR ray order MEASURED: index runs clockwise (SIGN=\u22121) \u2014 fixed the 0.6 m estimate bug \u2192 now 0.13 m; range accuracy 8 cm median",
+    "A* cost == Dijkstra on 60 random grids; two routes verified",
     "Re-plan hooks: blocked route detected \u2192 alternate route planned",
-  ], 0.75, 2.3, 5.55, 3.8, { fontSize: 12.5, gap: 9 });
+  ], 0.75, 2.3, 5.55, 3.8, { fontSize: 12, gap: 8 });
 
   card(s, 6.8, 1.65, 6.05, 4.6, "FFF7ED");
-  s.addText("Pending live Webots runs (exact commands in README)", { x: 7.05, y: 1.85, w: 5.7, h: 0.35, fontSize: 15, fontFace: FONT, bold: true, color: ACCENT, margin: 0 });
+  s.addText("Still to measure (tooling ready, commands in README)", { x: 7.05, y: 1.85, w: 5.7, h: 0.35, fontSize: 15, fontFace: FONT, bold: true, color: ACCENT, margin: 0 });
   bulletList(s, [
-    "Kinematics error % — commanded vs GPS/IMU finite differences (drive_test)",
-    "Odometry drift vs GPS on line / square / arc",
-    "LiDAR ray-order calibration (left-only obstacle) + range accuracy at 0.5/1/2 m",
-    "Detector rates on REAL frames + lighting variants",
-    "Cross-track error, success rate over \u226510 runs, screen recording",
-  ], 7.05, 2.3, 5.55, 3.0, { fontSize: 12.5, gap: 9 });
+    "Repeatability: \u226510 runs from different starts (RUN_INDEX mode wired)",
+    "\u226460 s screen recording of the full run (Webots Movie mode)",
+    "Detector lighting variants + more distances (13-frame sample today)",
+  ], 7.05, 2.3, 5.55, 1.6, { fontSize: 12, gap: 7 });
   s.addText([
-    { text: "Challenge hit & fixed: ", options: { bold: true, color: ACCENT } },
-    { text: "the first anti-windup scheme (back-calculation with k\u1D62 = 0.05) produced \u00B140 integral jumps and stalled the heading controller; replaced with conditional integration — follower then completed multi-waypoint paths.", options: { color: TEXT } },
-  ], { x: 7.05, y: 5.0, w: 5.6, h: 1.1, fontSize: 11.5, fontFace: FONT, margin: 0 });
+    { text: "Real challenges hit & fixed: ", options: { bold: true, color: ACCENT } },
+    { text: "cylinder wheel contact widened the effective track (\u221214% yaw rate) \u2014 fixed with sphere wheel bounding objects; a single light left package faces at HSV V\u224846 \u2014 fixed with two opposed lights; a blue decorative ball was mistaken for package P3 \u2014 desaturated; LiDAR ray order was mirrored \u2014 measured against the known map and corrected.", options: { color: TEXT } },
+  ], { x: 7.05, y: 4.3, w: 5.6, h: 1.8, fontSize: 10.5, fontFace: FONT, margin: 0 });
 
-  s.addText("No simulation result is claimed without being observed — the build machine has no Webots install, so sim-dependent numbers stay honestly pending.", { x: M, y: 6.55, w: 12.3, h: 0.5, fontSize: 12, fontFace: FONT, italic: true, color: MUTED, margin: 0 });
+  s.addText("Every number above points to a file in docs/evidence/ — claims without artifacts stay out of the deck.", { x: M, y: 6.55, w: 12.3, h: 0.5, fontSize: 12, fontFace: FONT, italic: true, color: MUTED, margin: 0 });
   pageNo(s, 8);
   s.addNotes("Honesty is the point of this slide: green column is proven by tests, orange column lists exactly what the operator runs produce next.");
 }
@@ -319,8 +317,8 @@ function bulletList(s, items, x, y, w, h, opts = {}) {
 
   s.addText("Road to the final evaluation", { x: M, y: 4.05, w: 8, h: 0.4, fontSize: 17, fontFace: FONT, bold: true, color: TEXT, margin: 0 });
   const road = [
-    ["Now", "Run the live validation suite; capture evidence (recordings, metrics)"],
-    ["Next", "Tune PID gains on the real robot; \u226510-run success-rate campaign"],
+    ["Now", "Finish P0 evidence: LiDAR calibration, detector set, \u226460 s recording"],
+    ["Next", "10-run repeatability campaign (RUN_INDEX mode wired); detector lighting set"],
     ["Final", "Dynamic obstacle \u2192 BLOCKED \u2192 live re-plan (hooks already tested)"],
     ["Final", "Real pickup via connector/supervisor attach; collision counter; dashboard"],
   ];
@@ -341,9 +339,9 @@ function bulletList(s, items, x, y, w, h, opts = {}) {
   s.addText("STATUS", { x: M, y: 1.3, w: 6, h: 0.35, fontSize: 13, fontFace: FONT, bold: true, color: ACCENT, charSpacing: 4, margin: 0 });
   s.addText("Built. Tested. Ready to drive.", { x: M, y: 1.7, w: 12, h: 1.0, fontSize: 48, fontFace: FONT, bold: true, color: "FFFFFF", margin: 0 });
   const takeaways = [
-    "Complete P0 codebase: world generator, custom robot, planner, controller, FSM — 63 unit tests green.",
-    "Planning proven optimal against Dijkstra; the warehouse provably offers two routes for the re-planning demo.",
-    "Remaining work is measurement, not construction: live Webots runs fill the evidence tables, then the final-eval features plug into tested hooks.",
+    "Complete P0 codebase driven in Webots: the full FSM mission ran FIND \u2192 NAVIGATE \u2192 PICK \u2192 PLAN \u2192 DELIVER \u2192 DONE (181 s, cross-track max 6.3 cm).",
+    "Validation is quantitative: kinematics error \u2264 1%, odometry drift ~2 cm, detector 100% on real frames, A* optimal vs Dijkstra.",
+    "Next is coverage, not construction: the recording, lighting variants, the 10-run campaign — then final-eval features plug into tested hooks.",
   ];
   takeawayList(s, takeaways);
   function takeawayList(sl, items) {

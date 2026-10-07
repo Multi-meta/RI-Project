@@ -45,6 +45,8 @@ COLORS = {
     "wheel": (0.1, 0.1, 0.1),
     "caster": (0.3, 0.3, 0.3),
     "sensor": (0.05, 0.05, 0.05),
+    "barrel": (0.75, 0.4, 0.05),
+    "ball": (0.45, 0.45, 0.50),  # DESATURATED gray-blue: must stay outside every HSV package window (a saturated blue ball was mistaken for package P3!)
 }
 
 CASTER_MATERIAL = "caster"          # zero-friction contact material
@@ -156,6 +158,13 @@ def build_robot(controller):
     }}
     GPS {{ name "{config.GPS_NAME}" }}
     InertialUnit {{ name "{config.IMU_NAME}" }}
+    LED {{ name "{config.LED_NAME}" }}
+    Display {{
+      translation 0 0 {config.LIDAR_MOUNT_Z + 0.02}
+      name "{config.DISPLAY_NAME}"
+      width {config.DISPLAY_WIDTH}
+      height {config.DISPLAY_HEIGHT}
+    }}
 {caster("caster_front", caster_x)}
 {caster("caster_rear", -caster_x)}
 {wheel(+1)}
@@ -217,6 +226,29 @@ def build_world(controller):
     for x, y, sx, sy, h, d in config.CRATES:
         w.append(solid(d, f"{x} {y} {h / 2}", f"{sx} {sy} {h}", COLORS["crate"]))
 
+    # small varied-shape obstacles (cylinders / spheres / small crates) —
+    # they force A* to weave; grid gets their bounding squares from config
+    for x, y, r, h, d in config.CYLINDERS:
+        w.append(f'DEF {d} Solid {{\n'
+                 f'  translation {x} {y} {h / 2}\n'
+                 f'  children [ Shape {{ appearance {mat(COLORS["barrel"])} '
+                 f'geometry Cylinder {{ radius {r} height {h} subdivision 20 }} }} ]\n'
+                 f'  name "{d.lower()}"\n'
+                 f'  boundingObject Cylinder {{ radius {r} height {h} subdivision 20 }}\n'
+                 f'  physics Physics {{ density -1 mass 1.0 }}\n'
+                 f'}}\n')
+    for x, y, r, d in config.SPHERES:
+        w.append(f'DEF {d} Solid {{\n'
+                 f'  translation {x} {y} {r}\n'
+                 f'  children [ Shape {{ appearance {mat(COLORS["ball"])} '
+                 f'geometry Sphere {{ radius {r} subdivision 4 }} }} ]\n'
+                 f'  name "{d.lower()}"\n'
+                 f'  boundingObject Sphere {{ radius {r} subdivision 4 }}\n'
+                 f'  physics Physics {{ density -1 mass 0.8 }}\n'
+                 f'}}\n')
+    for x, y, sz, h, d in config.CRATES_EXTRA:
+        w.append(solid(d, f"{x} {y} {h / 2}", f"{sz} {sz} {h}", COLORS["crate"]))
+
     # floor patches — NO boundingObject (non-colliding)
     for d, (px, py, psx, psy), c in (("PICKUP_AREA", config.PICKUP_AREA, "pickup"),
                                      ("ZONE_A", config.ZONE_A, "zone_a"),
@@ -242,12 +274,19 @@ def build_world(controller):
 
 def main():
     os.makedirs(WORLDS_DIR, exist_ok=True)
+    # worlds_output/ keeps plain copies of the latest generated worlds
+    # (staging dir; worlds/ is what Webots opens).
+    out_dir = os.path.normpath(os.path.join(WORLDS_DIR, "..", "worlds_output"))
+    os.makedirs(out_dir, exist_ok=True)
     for fname, controller in WORLDS.items():
+        content = build_world(controller)
         out_path = os.path.normpath(os.path.join(WORLDS_DIR, fname))
         with open(out_path, "w", newline="\n") as f:
-            f.write(build_world(controller))
+            f.write(content)
+        with open(os.path.join(out_dir, fname), "w", newline="\n") as f:
+            f.write(content)
         print(f"wrote {out_path} ({os.path.getsize(out_path)} bytes, "
-              f"controller \"{controller}\")")
+              f"controller \"{controller}\") + copy in worlds_output/")
 
 
 if __name__ == "__main__":

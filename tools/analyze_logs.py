@@ -13,12 +13,16 @@ Run:  python tools/analyze_logs.py
 import csv
 import math
 import os
+import sys
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+sys.path.insert(0, os.path.join(ROOT, "controllers", "intellibot_controller"))
+import config  # noqa: E402
+
 LOGS = os.path.join(ROOT, "logs")
 EV = os.path.join(ROOT, "docs", "evidence")
 
@@ -128,6 +132,48 @@ def run_section(lines):
             seen.append(s)
     lines.append(f"- state sequence: {' -> '.join(seen)}")
     lines.append("")
+    # 6.3 overlay evidence: A* reference vs actual trajectory
+    try:
+        from plot_run import plot_run
+        plot_run(os.path.join(LOGS, "run.csv"))
+        lines.append("![planned vs actual](planned_vs_actual.png)\n")
+    except Exception as exc:
+        lines.append(f"(planned_vs_actual plot failed: {exc})\n")
+
+
+def campaign_section(lines):
+    """Repeatability campaign (checklist 6.8): logs/run_<i>.csv -> summary."""
+    paths = []
+    for name in os.listdir(LOGS):
+        stem, ext = os.path.splitext(name)
+        if ext == ".csv" and stem.startswith("run_") and stem[4:].isdigit():
+            paths.append((int(stem[4:]), os.path.join(LOGS, name)))
+    paths.sort()
+    if not paths:
+        return
+    table = ["| run | result | time (s) | final goal err (m) |", "|---|---|---|---|"]
+    ok = 0
+    for idx, p in paths:
+        rows = list(csv.DictReader(open(p)))
+        if not rows:
+            continue
+        last = rows[-1]
+        result = last["state"]
+        ok += result == "DONE"
+        dur = float(last["t"]) - float(rows[0]["t"])
+        goal = math.hypot(float(last["x"]) - config.ZONE_B_CENTER[0],
+                          float(last["y"]) - config.ZONE_B_CENTER[1])
+        table.append(f"| {idx} | {result} | {dur:.1f} | {goal:.2f} |")
+    block = (f"**Success rate: {ok}/{len(paths)}**", "")
+    lines.append("## Repeatability campaign (different start poses)\n")
+    lines.extend(table + block)
+    with open(os.path.join(EV, "runs_summary.md"), "w") as f:
+        f.write("# Repeatability campaign (checklist 6.8)\n\n"
+                "Runs from different start poses: set `RUN_INDEX=<i>` before\n"
+                "starting Webots (the supervisor teleports the robot to\n"
+                "`config.CAMPAIGN_STARTS[i]`; the log goes to `logs/run_<i>.csv`).\n\n")
+        f.write("\n".join(table + block) + "\n")
+    print(f"wrote {os.path.join(EV, 'runs_summary.md')}")
 
 
 def main():
@@ -136,6 +182,7 @@ def main():
     kinematics_section(lines)
     odometry_section(lines)
     run_section(lines)
+    campaign_section(lines)
     lines.append("Not covered here (measured by dedicated tools): LiDAR range "
                  "accuracy (`plot_lidar.py`), detector rates "
                  "(`eval_detector.py`), A* optimality (`plot_astar.py`).\n")

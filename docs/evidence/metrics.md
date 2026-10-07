@@ -21,9 +21,11 @@
 
 ## Mission run
 
-- rows logged: 1887
-- mean cross-track error: 0.001 m
-- max cross-track error: 0.063 m
-- state sequence: FIND_PACKAGE -> NAVIGATE -> PICK -> PLAN_DELIVERY -> DELIVER -> DONE
+- rows logged: 723
+- mean cross-track error: 0.004 m
+- max cross-track error: 0.062 m
+- state sequence: FIND_PACKAGE -> NAVIGATE -> PICK -> DELIVER -> DONE
+
+![planned vs actual](planned_vs_actual.png)
 
 Not covered here (measured by dedicated tools): LiDAR range accuracy (`plot_lidar.py`), detector rates (`eval_detector.py`), A* optimality (`plot_astar.py`).

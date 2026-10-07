@@ -161,3 +161,125 @@ This document audits the Webots sample device-demo controllers located in `RI-Pr
 - **Key API calls:** `accelerometer.enable(timestep)`, `accelerometer.getValues()` (3-axis), `front_led/back_led/left_led/right_led.set(True/False)`, `getBasicTimeStep()`.
 - **World:** Not referenced in the file.
 - **IntelliBot reuse:** Skimmed only — tilt/impact detection could support collision detection in the final eval.
+
+---
+
+# World-file audit (Phase 0.4)
+
+The official R2025a sample worlds were copied into `worlds/` (54 files, same
+names as the controller folders). Header conventions observed in ALL of them:
+
+```
+#VRML_SIM R2025a utf8
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/.../X.proto"
+```
+
+- EXTERNPROTO URLs are REQUIRED only for PROTO nodes (TexturedBackground,
+  RectangleArena, Can, ...). Our generated warehouse world uses base nodes
+  only, so it needs none — confirmed working (missions ran in it).
+- Every sample sets `WorldInfo { title ... info [ ... ] basicTimeStep 8 }` —
+  8 ms in the device demos; we keep 16 ms (validated stable).
+- `Viewpoint { orientation ... position ... follow "MyBot" }` — the `follow`
+  field is handy for demo recordings.
+
+## lidar.wbt — Lidar node reference
+```vrml
+DEF LIDAR Lidar {
+  translation 0 0 0.45
+  tiltAngle -0.1
+  horizontalResolution 256
+  fieldOfView 1.57
+  numberOfLayers 6
+  near 0.05
+  minRange 0.05
+  maxRange 8
+  type "rotating"
+  noise 0.1
+  defaultFrequency 2
+}
+```
+- `type "rotating"` spins a `rotatingHead` Solid; our 360° x 2π scan matches
+  this with `fieldOfView 6.2832` and no rotating head.
+- `noise 0.1` is why real-sample noise appears; ours is noise-free (ideal).
+- Wheels use `RotationalMotor { name "left wheel motor" maxVelocity 100 }` +
+  `PositionSensor` inside `device [ ... ]` of a HingeJoint — same pattern as
+  our generator.
+
+## camera_recognition.wbt — Recognition node (Phase 4.10 ground truth)
+```vrml
+Camera {
+  translation 0.04 0 0.0915
+  fieldOfView 1.0472
+  width 256
+  height 128
+  antiAliasing TRUE
+  recognition Recognition {
+    frameColor 0.929412 0.831373 0
+    frameThickness 3
+  }
+}
+```
+- Adding a `recognition Recognition {}` child to OUR camera is all it takes
+  for ground-truth object lists (`getRecognitionObjects()`); decide at the
+  final eval whether to enable it permanently (validation-only for mid-eval).
+
+## gps.wbt / inertial_unit.wbt — device mounting
+```vrml
+GPS { }
+InertialUnit { translation 0 0 -0.08 rotation 0.577 -0.577 -0.577 -2.094 ... }
+```
+- Devices sit directly in the Robot `children [ ... ]`, optionally with a
+  translation; name is the only field the API needs.
+
+## display.wbt — Display node reference
+```vrml
+DEF CAMERA Display {
+  name "camera_display"
+  width 256
+  height 128
+}
+```
+- Display is a plain device with width/height; drawing is done from the
+  controller (`setColor`, `fillRectangle`, `drawText`...) exactly as in our
+  `display_dash.py`. The emoticon Display shows a Shape textured with an
+  ImageTexture inside the Display's children — a good way to get a custom
+  robot "screen" look later.
+
+## led.wbt — LED node reference
+```vrml
+LED {
+  translation 0 -0.015 0.08
+  children [ Group { children [ Shape { ... geometry Sphere { radius 0.01 } } ] } ]
+}
+```
+- The LED's children are the VISUAL (a small sphere + optional PointLight);
+  `led.set(0xRRGGBB)` from the controller tints it. Our generator adds a
+  bare LED; adding a visible sphere child is a 5-line cosmetic upgrade.
+
+## pen.wbt — Pen node reference (Phase 3.5)
+```vrml
+Pen {
+  translation 0 0 0.001
+  leadSize 0.01
+  children [ ... visual pen body ... ]
+}
+```
+- `pen.write(TRUE)` + `setInkColor` paints the robot trail on the floor;
+  mount it low (z ≈ 0.001) so the trail is visible under the chassis.
+
+## connector.wbt / vacuum_gripper.wbt / bumper.wbt — final-eval pickup
+```vrml
+DEF CONNECTOR_DEVICE Connector {
+  translation 0 0 0.055
+  model "magnetic"
+  autoLock TRUE
+  axisTolerance 3.14
+  rotationTolerance 3.14
+}
+TouchSensor { translation 0.045 0 0.02 ... }
+```
+- `autoLock TRUE` + wide tolerances = "bump into the package to attach";
+  that is the simplest final-eval pickup: drive to the package, lock,
+  carry, `unlock()` at the zone.
+- VacuumGripper samples use an arm; more moving parts than Connector —
+  decide Option A (connector) unless the viva wants manipulation depth.

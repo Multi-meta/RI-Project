@@ -93,6 +93,9 @@ DRIVE_TEST_MODE=kinematics  $W   # Phase 3.3: -> logs/kinematics_test.csv
 DRIVE_TEST_MODE=odometry    $W   # Phase 3.4: -> logs/odometry.csv
 DRIVE_TEST_MODE=snapshot webots --batch --mode=realtime --stdout --stderr worlds/warehouse_drive_test.wbt
                                  # Phase 2.2: world_topdown.png / world_angle.png (needs rendering)
+DRIVE_TEST_MODE=capture     $W   # Phase 4.7: spin frames -> docs/evidence/frames/spin_*.png
+DRIVE_TEST_MODE=lidar       $W   # Phase 4.2/4.4: raw scans -> logs/lidar_raw.csv
+python tools/calibrate_lidar.py  # ray order + range table -> lidar_validation.md + lidar_scan.png
 python tools/analyze_logs.py     # tables + odometry_vs_gps.png + kinematics_validation.md
 ```
 
@@ -108,10 +111,28 @@ python -m pytest tests/ -q            # 63 tests, ~1 s
 
 ```bash
 python tools/plot_astar.py            # docs/evidence/astar_pickup_to_zoneB.png + A*/Dijkstra check
-python tools/analyze_logs.py          # metrics.md + odometry overlay (after runs)
+python tools/analyze_logs.py          # metrics.md + odometry overlay + planned-vs-actual
+python tools/plot_run.py              # planned_vs_actual.png from logs/run.csv (6.3)
 python tools/plot_lidar.py            # lidar_scan.png (after logs/lidar_scan.csv exists)
+python tools/build_frame_gt.py        # ground_truth.csv for spin frames (geometry-based)
 python tools/eval_detector.py         # detector_eval.md (after frame capture)
+python tools/eval_position.py         # position_estimate.md (pinhole-fallback error)
+python tools/check_evidence.py        # evidence inventory -> inventory.md (7.2)
 ```
+
+## Repeatability campaign (checklist 6.8)
+
+`config.CAMPAIGN_STARTS` holds 10 start poses. Run the mission once per
+index — the supervisor teleports the robot to that pose at startup and the
+log goes to `logs/run_<i>.csv`:
+
+```bash
+RUN_INDEX=0 webots worlds/warehouse.wbt   # ... up to RUN_INDEX=9
+python tools/analyze_logs.py              # -> docs/evidence/runs_summary.md
+```
+
+(If your shell doesn't propagate the variable to Webots, temporarily set it
+inside `intellibot_controller.py`'s `apply_campaign_start`.)
 
 ## Detector evaluation set (capture in simulation)
 
@@ -126,9 +147,12 @@ python tools/eval_detector.py         # detector_eval.md (after frame capture)
 ## Known limitations (honest list)
 
 - Measured in Webots so far: world/config consistency, rest stability,
-  kinematics (v, ω within 0.9 %) and odometry drift (Phases 2–3). Still
-  **pending measurement**: LiDAR accuracy, detector rates on real frames,
-  cross-track error, mission success rate. See `docs/webots_findings.md`.
+  kinematics (v, ω within 0.9 %), odometry drift, one full FSM mission run
+  (FIND→…→DONE, 181 s) and detector detection rate on a 13-frame spin
+  sample. Still **pending measurement**: LiDAR ray-order calibration and
+  range accuracy, LiDAR-fused position error, lighting variants, the
+  ≥10-run success campaign, screen recording. See `docs/webots_findings.md`
+  and `docs/evidence/inventory.md`.
 - First full mission run (2026-10-06) reached DONE in 61.7 s sim time, but
   the package position estimate was ~0.6 m short (LiDAR ray order still
   unverified, Phase 4.2). Pickup is still a placeholder.

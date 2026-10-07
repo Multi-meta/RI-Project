@@ -42,8 +42,19 @@ def main(frames_dir=None):
     annotated_example = None
     n = 0
     with open(gt_path) as f:
+        # two GT formats supported:
+        #   long  : frame,pkg,present   (one row per frame x package)
+        #   wide  : frame,pkg           (pkg = semicolon-separated package ids)
+        per_frame = {}
         for row in csv.DictReader(f):
             name = row["frame"]
+            if "present" in row and row["present"].strip() != "":
+                per_frame.setdefault(name, []).append(
+                    (row["pkg"].strip(), row["present"].strip() == "1"))
+            else:
+                per_frame.setdefault(name, []).append(
+                    (row["pkg"].strip(), True))
+        for name, entries in per_frame.items():
             path = os.path.join(frames_dir, name)
             if not os.path.exists(path):
                 continue
@@ -51,7 +62,15 @@ def main(frames_dir=None):
             n += 1
             dets = detector.detect_colors(img)
             det_colors = {d.color for d in dets}
-            present = [c.strip() for c in row.get("pkg", "").split(";") if c.strip()]
+            # GT may name packages (P1/P2/P3) or colors; normalize to colors
+            present = set()
+            for pkg, is_present in entries:
+                if not is_present:
+                    continue
+                try:
+                    present.add(detector.color_of_pkg(pkg))
+                except KeyError:
+                    present.add(pkg)
             for color in results:
                 if color in present:
                     if color in det_colors:
@@ -70,10 +89,10 @@ def main(frames_dir=None):
         total = r["tp"] + r["fn"]
         rate = 100.0 * r["tp"] / total if total else float("nan")
         lines.append(f"| {color} | {rate:.1f}% ({r['tp']}/{total}) | {r['fp']} |")
-    lines.append("\nLighting variants are reported by the capture controller "
-                 "in `logs/detector_frames_index.csv` (lighting column) — "
-                 "split the numbers above by that column for the challenge "
-                 "slide.\n")
+    lines.append(f"\nSample: {n} frames from one in-place spin capture at the "
+                 "start pose (packages at ~3.1 m). More frames per package at "
+                 "varied distances/angles and 3 lighting levels are still to be "
+                 "captured (checklist 4.7) before quoting these rates as final.\n")
     os.makedirs(os.path.dirname(OUT_MD), exist_ok=True)
     with open(OUT_MD, "w") as f:
         f.write("\n".join(lines))

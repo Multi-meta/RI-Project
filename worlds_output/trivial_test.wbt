@@ -1,0 +1,45 @@
+#VRML_SIM R2025a utf8
+# Minimal working world template (Phase 0.5).
+# Verified against the official R2025a sample worlds in worlds/ (they all use
+# the same header) and against our own worlds/warehouse.wbt, which runs the
+# full mission without console warnings. Only base nodes are used, so no
+# EXTERNPROTO lines are required.
+
+WorldInfo {
+  coordinateSystem "ENU"
+  basicTimeStep 16
+}
+Viewpoint {
+  orientation -0.35 0.75 0.55 4.4
+  position -7 6 7
+}
+DirectionalLight {
+  direction 0.3 -0.4 -1
+  intensity 0.8
+  ambientIntensity 0.5
+  castShadows FALSE
+}
+
+DEF FLOOR Solid {
+  translation 0 0 -0.025
+  children [
+    Shape {
+      appearance Appearance { material Material { diffuseColor 0.5 0.5 0.5 } }
+      geometry Box { size 2 2 0.05 }
+    }
+  ]
+  boundingObject Box { size 2 2 0.05 }
+}
+
+DEF BOX Solid {
+  translation 0 0 0.1
+  children [
+    Shape {
+      appearance Appearance { material Material { diffuseColor 1 0 0 } }
+      geometry Box { size 0.2 0.2 0.2 }
+    }
+  ]
+  name "box"
+  boundingObject Box { size 0.2 0.2 0.2 }
+  physics Physics { density -1 mass 0.5 }
+}

@@ -13,6 +13,11 @@ controller = drive_test). Mode is chosen by the DRIVE_TEST_MODE env var:
     snapshot    top-down + angled screenshots -> docs/evidence/ (Phase 2.2)
     capture     spin in place like FIND_PACKAGE; save camera frames every 30 deg
                 + print HSV detections -> docs/evidence/frames/spin_*.png
+    lidar       rotate one slow turn logging raw 360-ray scans
+                -> logs/lidar_raw.csv; prints OBSTACLE AHEAD when the front
+                cone closes (Phase 4.2/4.3). Calibrate OFFLINE with
+                tools/calibrate_lidar.py (ray order + range accuracy +
+                logs/lidar_scan.csv for plot_lidar.py).
 
 All output paths are relative to the repo root (not the controller CWD).
 """
@@ -37,6 +42,22 @@ from perception import check_world_consistency  # noqa: E402
 
 LOG_DIR = os.path.join(_ROOT, "logs")
 EVIDENCE_DIR = os.path.join(_ROOT, "docs", "evidence")
+
+
+def print_env_versions():
+    """Phase 0.1: prove numpy/cv2/matplotlib import inside a controller."""
+    import numpy
+    print(f"[env] python {sys.version.split()[0]} | numpy {numpy.__version__}")
+    try:
+        import cv2
+        print(f"[env] cv2 {cv2.__version__}")
+    except ImportError:
+        print("[env] cv2 NOT importable — check Webots Python command!")
+    try:
+        import matplotlib
+        print(f"[env] matplotlib {matplotlib.__version__}")
+    except ImportError:
+        print("[env] matplotlib NOT importable")
 
 
 class DriveTest:
@@ -298,6 +319,50 @@ class DriveTest:
             prev = th
         self.stop()
 
+    def run_lidar(self):
+        """Phase 4.2/4.3/4.4 capture: rotate one slow turn, log every raw scan.
+
+        One row per step (10 Hz): t, x, y, theta, then the full range image.
+        Ray-order calibration and the range-accuracy table are computed
+        OFFLINE by tools/calibrate_lidar.py against the known map, so a
+        calibration change never requires re-running the robot.
+        """
+        lidar = self.robot.getDevice(config.LIDAR_NAME)
+        lidar.enable(self.dt)
+        self.hold(0.0, 0.0, 0.3)            # first scans settle
+        n = lidar.getHorizontalResolution()
+        path = os.path.join(LOG_DIR, "lidar_raw.csv")
+        f = open(path, "w", newline="")
+        wr = csv.writer(f)
+        wr.writerow(["t", "x", "y", "theta"] + [f"r{i}" for i in range(n)])
+        rows = 0
+        yaw_acc, prev = 0.0, self.pose()[2]
+        last_front_msg = -1.0
+        while yaw_acc < 2 * math.pi:
+            x, y, th = self.pose()
+            ranges = lidar.getRangeImage()
+            wr.writerow([round(self.t(), 3), round(x, 4), round(y, 4),
+                         round(th, 4)] + [r if r == r else "" for r in ranges])
+            rows += 1
+            # 4.3 live check: obstacle in the front cone (center indices under
+            # the ray-0-at--fov/2 convention; confirmed by calibrate_lidar)
+            half = max(1, n // 24)
+            front = min((r for r in ranges[n // 2 - half:n // 2 + half + 1]
+                         if r == r),
+                        default=float("inf"))
+            if front < config.STOP_DIST + 0.2 and self.t() - last_front_msg > 2.0:
+                print(f"[lidar] OBSTACLE AHEAD {front:.2f} m "
+                      f"(yaw {math.degrees(th):.0f} deg)")
+                last_front_msg = self.t()
+            self.hold(0.0, 0.3, self.dt / 1000.0)
+            th = self.pose()[2]
+            yaw_acc += abs(wrap_to_pi(th - prev))
+            prev = th
+        f.close()
+        self.stop()
+        print(f"[lidar] wrote {rows} raw scans -> {path}")
+        print("[lidar] now run: python tools/calibrate_lidar.py")
+
 
 def _pct(meas, cmd):
     if abs(cmd) < 1e-9:
@@ -311,6 +376,7 @@ def main():
     dt = DriveTest()
     mode = os.environ.get("DRIVE_TEST_MODE", "sequence")
     print(f"[drive_test] mode = {mode}")
+    print_env_versions()
     runner = getattr(dt, f"run_{mode}", None)
     if runner is None:
         print(f"[drive_test] unknown mode {mode!r}, running sequence")

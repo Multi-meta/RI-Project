@@ -111,3 +111,91 @@ Everything in README "Run" section: open world, drive_test (sequence/
 kinematics/odometry modes), full mission run, LiDAR calibration (4.2),
 detector frame capture (4.7). Numbers must be filled into docs/evidence/*
 from real logs — do not invent.
+
+- 2026-10-07 — Phase 6.3 — tools/plot_run.py + analyze_logs hook: planned vs
+  actual overlay generated from the real logs/run.csv ->
+  docs/evidence/planned_vs_actual.png (A* reference vs actual trajectory
+  colored by FSM state, cross-track mean 0.13 cm / max 6.3 cm, 181 s run).
+- 2026-10-07 — Phase 6.8 — campaign mode wired: RUN_INDEX=<i> teleports the
+  supervisor robot to config.CAMPAIGN_STARTS[i] and logs to logs/run_<i>.csv;
+  analyze_logs now emits docs/evidence/runs_summary.md (success rate, time,
+  goal error per run) once campaign logs exist.
+- 2026-10-07 — Phase 6.10/6.11 — display_dash.py: in-sim Display dashboard
+  (map + route + robot + state, ~2 Hz) and LED state indicator
+  (config.STATE_LED); devices added to both generated worlds.
+- 2026-10-07 — Phase 7.2 — tools/check_evidence.py: evidence inventory with
+  P0/P1 status -> docs/evidence/inventory.md. Remaining P0 gaps:
+  lidar_scan.png, run_full.mp4 (both need Webots).
+- 2026-10-07 — Phase 4.7/4.8 (partial) — tools/build_frame_gt.py derives
+  ground truth for the captured spin frames from geometry (FOV + LOS check
+  on the known map); eval_detector now reports 100% detection (6/6 package
+  appearances at ~3.1 m), 0 false positives over 13 real frames. Small
+  sample — more captures still needed for final rates.
+- 2026-10-07 — Phase 4.9 (partial) — tools/eval_position.py: pinhole-fallback
+  position error on the spin frames -> docs/evidence/position_estimate.md
+  (mean 0.59 m at ~3.1 m, quantization-limited; LiDAR-fused number to be
+  recorded live).
+- 2026-10-07 — Phase 8 — deck updated with measured numbers (kinematics
+  <=1%, odometry drift 2.2 cm/4.7 deg, full mission DONE in 181 s, detector
+  100%/0 FP), real challenges (wheel contact, two-light fix, anti-windup),
+  roadmap with RUN_INDEX campaign; demo_script.md gained the recording steps
+  and per-slide presenter/rehearsal table. pytest: 63 passed.
+
+- 2026-10-07 — Phase 0.4 — official R2025a sample worlds copied into worlds/
+  audited for NODE structure (not just controllers): Lidar (tiltAngle/
+  noise/type "rotating"), Camera+Recognition child, bare GPS/InertialUnit
+  mounting, Display width/height, LED visual children, Pen leadSize,
+  Connector autoLock (final-eval pickup), TouchSensor — verbatim snippets +
+  reuse notes appended to docs/samples_audit.md ("World-file audit").
+- 2026-10-07 — Phase 0.5 — tools/world_header.txt (minimal template, only
+  base nodes; header byte-pattern proven by the running warehouse world) +
+  worlds_output/trivial_test.wbt instantiated from it; worlds_output/ now
+  always receives fresh copies from generate_world.py (previous copy was
+  stale, from before the wheel/lighting fixes).
+- 2026-10-07 — Phase 0.1 — env proof built into both controllers
+  (print_env_versions / startup banner): every run prints python, numpy,
+  cv2, matplotlib versions to the Webots console.
+- 2026-10-07 — Phase 4.2/4.4 automation — drive_test `lidar` mode logs raw
+  360-ray scans during one slow rotation (logs/lidar_raw.csv) and prints
+  OBSTACLE AHEAD when the front cone closes (4.3); new
+  tools/calibrate_lidar.py ray-marches the known map to determine
+  LIDAR_ANGLE_SIGN/_OFFSET offline, writes the range-accuracy table
+  (docs/evidence/lidar_validation.md) + logs/lidar_scan.csv and renders
+  lidar_scan.png. Targets the 0.6 m package-estimate error (suspected
+  mirrored ray order).
+
+- 2026-10-07 (later) — CRITICAL FIX — the robot "not moving" in Webots: the
+  whole controllers/intellibot_controller + drive_test folders had been
+  deleted from the working tree, so Webots fell back to the <generic>
+  controller ("The controller directory has not been found"). Restored from
+  git and re-applied the uncommitted Phase 6–8 edits (config dashboard/LED/
+  campaign sections, display_dash.py, mission wiring, drive_test lidar mode,
+  env-version prints).
+- 2026-10-07 (later) — Environment — 4 new small varied-shape obstacles in
+  config + generator: 2 cylinders (barrels), 1 sphere (ball), 1 small crate,
+  all in the central band so both outer corridors stay clear (test_warehouse
+  still green). Forces A* to weave on every mission leg.
+- 2026-10-07 (later) — BUG (found by the run): the ball was painted saturated
+  blue and FIND_PACKAGE locked onto IT instead of package P3. Fixed: ball
+  desaturated to grey. Lesson: environment colours are part of the
+  detector's interface.
+- 2026-10-07 (later) — Phase 4.2/4.4 MEASURED — DRIVE_TEST_MODE=lidar logged
+  1321 raw scans; tools/calibrate_lidar.py vs the known map gives
+  LIDAR_ANGLE_SIGN=-1, LIDAR_ANGLE_OFFSET=0.02 (index runs CLOCKWISE;
+  median |err| 8 cm). This was the root cause of the 0.6 m package-estimate
+  error. Config updated; docs/evidence/lidar_validation.md + lidar_scan.png
+  produced.
+- 2026-10-07 (later) — Mission re-run with fixes + new obstacles: P3 detected
+  at (-2.99, -0.57) vs true (-3.10, -0.50) = 0.13 m error (was 0.6 m); full
+  FIND->NAVIGATE->PICK->PLAN_DELIVERY->DELIVER->DONE in 69.2 s, 8.2 m,
+  cross-track max 6.2 cm, final goal error 0.12 m. run.csv now ends at DONE
+  (controller breaks its loop after DONE; simulationQuit alone kept batch
+  runs alive to the 300 s timeout and buffered prints were lost — fixed with
+  an explicit break + final CSV row).
+- 2026-10-07 (later) — Snapshots re-taken (world_topdown/world_angle) with
+  the new obstacles; metrics.md/planned_vs_actual regenerated; A* figure and
+  world layout re-rendered for the new map (A* == Dijkstra, alt route OK).
+- 2026-10-07 (later) — Phase 8 companion guide: docs/phase6_7_8_9_explained.md
+  + Phase6_7_8_9_Explained.pdf (6 pages, LibreOffice via tools/md_to_docx.py)
+  mirroring Phase2_3_Explained.pdf, including the problems-hit section and
+  the run cheat sheet.

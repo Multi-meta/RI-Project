@@ -108,10 +108,12 @@ read at the mirrored bearing. To verify in Phase 4.2.
    x east, y north, z up; robot yaw from `InertialUnit.getRollPitchYaw()[2]`,
    0 = facing +x, CCW positive. **Verify** with drive_test: forward should
    increase x, spin-left should increase yaw.
-3. **LiDAR ray order**: config assumes ray 0 at −fov/2 (rightmost), index
-   increasing CCW (`LIDAR_ANGLE_SIGN=+1`, offset 0). **Verify** per checklist
-   4.2: place an obstacle on the LEFT only; short indices must map to +90°.
-   If reversed, set `LIDAR_ANGLE_SIGN=-1` in config.py.
+3. ~~LiDAR ray order~~ — **MEASURED 2026-10-07** (1321 scans vs the known
+   map via `tools/calibrate_lidar.py`): the index increases **CLOCKWISE**
+   (`LIDAR_ANGLE_SIGN=-1`, offset 0.02 rad, median |err| 8 cm). This was the
+   root cause of the 0.6 m package-estimate error; after the fix the live
+   estimate is (−2.99, −0.57) vs true (−3.10, −0.50) = **0.13 m**. Evidence:
+   `docs/evidence/lidar_validation.md`, `lidar_scan.png`.
 4. **Camera**: BGRA bytes, row-major; horizontal FOV field. Verify saved
    frames are not flipped/blue-shifted (checklist 4.5).
 5. **Motors**: velocity mode `setPosition(float('inf'))` then `setVelocity()`;
@@ -123,5 +125,47 @@ read at the mirrored bearing. To verify in Phase 4.2.
 8. **EXTERNPROTO**: avoided entirely — the world uses only primitive nodes
    (Solid/Shape/Box/Cylinder/Sphere/Lidar/Camera/GPS/InertialUnit/Robot), so
    no PROTO headers are needed.
-9. **Lighting/HSV**: one directional light, `castShadows FALSE`,
-   ambientIntensity 0.7 — shadows must stay OFF to keep HSV detection stable.
+9. ~~Lighting/HSV~~ — superseded by fix 8: TWO opposed directional
+   lights, `castShadows FALSE`; shadows must stay OFF to keep HSV stable.
+
+## Additions (2026-10-07)
+
+- **Env check (0.1) built in:** both controllers now print
+  `python/numpy/cv2/matplotlib` versions at startup (`print_env_versions` /
+  the INTELLIBOT banner), so the Phase 0.1 console proof happens on every
+  run instead of needing a throwaway controller.
+- **Sample worlds copied to `worlds/`** and audited
+  (`docs/samples_audit.md` → "World-file audit"): all R2025a samples use
+  `#VRML_SIM R2025a utf8` + EXTERNPROTO URLs only for PROTO nodes; the
+  Lidar/Camera+Recognition/LED/Display/Pen/Connector field values we should
+  mirror are recorded there verbatim. Header template saved to
+  `tools/world_header.txt`; a minimal floor+box world instantiated from it
+  is at `worlds_output/trivial_test.wbt`.
+- **LiDAR calibration pipeline (4.2/4.4) automated:** `DRIVE_TEST_MODE=lidar`
+  logs raw 360-ray scans while rotating (`logs/lidar_raw.csv`), then
+  `python tools/calibrate_lidar.py` determines `LIDAR_ANGLE_SIGN/_OFFSET`
+  against the known map, writes the range-accuracy table
+  (`docs/evidence/lidar_validation.md`) and `logs/lidar_scan.csv` →
+  `docs/evidence/lidar_scan.png`. This directly targets the known issue
+  above (package estimate 0.6 m short = suspected mirrored ray order).
+- **`worlds_output/`** now always holds fresh copies of the generated
+  worlds (the previous copy was from Oct 5, before the wheel/lighting
+  fixes — stale files removed by regeneration).
+
+
+## More findings (2026-10-07, CLI batch runs)
+
+- Webots runs fine headless from the CLI:
+  `DRIVE_TEST_MODE=<mode> "D:\Webots\msys64\mingw64in\webots.exe" --batch --mode=fast --stdout --stderr --minimize worlds/warehouse_drive_test.wbt`
+  (Python 3.12.3 now resolves via `pythonCommand=python`).
+- A second Webots instance (e.g. an open GUI window) warns "port 1234
+  already in use" and can silently interfere with CLI runs — close GUI
+  instances before batch testing.
+- **Environment colours are part of the detector's interface**: a
+  decorative ball painted saturated blue was "found" as package P3 by the
+  HSV detector. Decorative objects must stay outside every HSV window
+  (ball is now desaturated grey).
+- `simulationQuit(0)` from the controller does not reliably terminate batch
+  runs, and prints buffered at process death are lost. The controller now
+  breaks its own loop 2 s after DONE/ERROR, writes a final CSV row with the
+  terminal state, and flushes stdout before quitting.

@@ -11,15 +11,15 @@
 
 ## Phase 0 — Setup & reconnaissance
 
-- [ ] **0.1 [P0] Environment check.** Record in `docs/webots_findings.md`: Webots version, OS, Python version used by Webots (Preferences → Python command), and whether `numpy`, `cv2`, `matplotlib` import inside a controller.
+- [x] **0.1 [P0] Environment check.** Record in `docs/webots_findings.md`: Webots version, OS, Python version used by Webots (Preferences → Python command), and whether `numpy`, `cv2`, `matplotlib` import inside a controller.
   *Done when:* a throwaway controller prints `numpy`, `cv2`, `matplotlib` versions in the Webots console.
 - [x] **0.2 [P0] Create repo skeleton** exactly as in `project_summary.md` §9 (empty modules with docstrings, `tests/`, `tools/`, `docs/`, `docs/evidence/`, `logs/`, `requirements.txt`, `README.md` stub). Do **not** modify existing sample folders in `controllers/`.
   *Done when:* `pytest` runs (0 tests, no errors) and the tree matches the spec.
 - [x] **0.3 [P0] Samples audit.** Open the `.py` file in each of these sample folders and write `docs/samples_audit.md` (one short section each: what it shows, key API calls to copy, which world it uses): `lidar`, `camera`, `camera_recognition`, `gps`, `inertial_unit`, `position_sensor`/`encoders`, `motor`, `distance_sensor`, `sample_supervisor`, `gps_supervisor`, `connector`, `vacuum_gripper`, `display`, `pen`, `emitter_receiver`. (`hokuyo`, `sick`, `camera_segmentation`, `bumper` — skim only.)
   *Done when:* the audit file has an entry per folder with at least the exact calls we will reuse (e.g., `lidar.enable`, `getRangeImage`, `getHorizontalResolution`, `getFov`, `getMaxRange`).
-- [ ] **0.4 [P1] Open 2–3 sample worlds** from the Webots installation (`projects/samples/devices/worlds/`, e.g. the lidar and camera_recognition worlds) to see how devices are mounted/configured. Note any node snippets worth copying (Lidar/Camera node fields, `Recognition` node) into the audit file.
+- [x] **0.4 [P1] Open 2–3 sample worlds** from the Webots installation (`projects/samples/devices/worlds/`, e.g. the lidar and camera_recognition worlds) to see how devices are mounted/configured. Note any node snippets worth copying (Lidar/Camera node fields, `Recognition` node) into the audit file.
   *Done when:* snippets are recorded.
-- [ ] **0.5 [P0] Verify world-file requirements** for the installed version: `#VRML_SIM` header, `coordinateSystem "ENU"`, whether `EXTERNPROTO` lines are required. Save a minimal working header template to `tools/world_header.txt`.
+- [x] **0.5 [P0] Verify world-file requirements** for the installed version: `#VRML_SIM` header, `coordinateSystem "ENU"`, whether `EXTERNPROTO` lines are required. Save a minimal working header template to `tools/world_header.txt`.
   *Done when:* a trivial world (floor + one box) generated from the template opens without errors.
 
 ---
@@ -75,25 +75,25 @@ Build and test these first; they are independent of the simulator.
 ## Phase 4 — Perception [P0]
 
 ### 4A LiDAR
-- [ ] **4.1 Lidar device config** in the robot: 1 layer, 360 rays, FOV 2π, range 0.05–4.0 m, mounted at center-top. In `perception.py`, wrap: enable, `get_ranges()` (NumPy), validity mask, angles array.
+- [x] **4.1 Lidar device config** in the robot: 1 layer, 360 rays, FOV 2π, range 0.05–4.0 m, mounted at center-top. In `perception.py`, wrap: enable, `get_ranges()` (NumPy), validity mask, angles array.
   *Done when:* a test controller prints min/mean range and the number of valid rays.
-- [ ] **4.2 [P0] Measure ray order/handedness.** Put an obstacle only on the robot's left (then right, then front); find which indices read short; derive and store `LIDAR_ANGLE_SIGN` / `LIDAR_ANGLE_OFFSET` in `config.py`. Document in `docs/webots_findings.md`.
+- [x] **4.2 [P0] Measure ray order/handedness.** Put an obstacle only on the robot's left (then right, then front); find which indices read short; derive and store `LIDAR_ANGLE_SIGN` / `LIDAR_ANGLE_OFFSET` in `config.py`. Document in `docs/webots_findings.md`.
   *Done when:* `ray_angle(i)` returns +90° for the left obstacle, 0° for front, verified three times.
-- [ ] **4.3 [P0] Sector queries + obstacle flag.** `min_range_in_sector(scan, a_min, a_max)`, `front_blocked(scan)` (< `STOP_DIST` in ±30°), plus `lidar_to_world` hook.
+- [x] **4.3 [P0] Sector queries + obstacle flag.** `min_range_in_sector(scan, a_min, a_max)`, `front_blocked(scan)` (< `STOP_DIST` in ±30°), plus `lidar_to_world` hook.
   *Done when:* console prints `OBSTACLE AHEAD 0.42 m` when the robot faces a crate.
-- [ ] **4.4 [P0] LiDAR validation + evidence.** Measure true vs measured at 0.5/1.0/2.0 m (use supervisor ground truth for the true distance), save table; save a scan snapshot and render `tools/plot_lidar.py` → `docs/evidence/lidar_scan.png` (world-frame hit points overlaid on the known map).
+- [x] **4.4 [P0] LiDAR validation + evidence.** Measure true vs measured at 0.5/1.0/2.0 m (use supervisor ground truth for the true distance), save table; save a scan snapshot and render `tools/plot_lidar.py` → `docs/evidence/lidar_scan.png` (world-frame hit points overlaid on the known map).
   *Done when:* error table + plot saved.
 
 ### 4B Camera & vision
-- [ ] **4.5 Camera device config** (320×240, FOV ≈ 1.0 rad, front-mounted). `perception.get_frame()` → BGR `ndarray` (drop alpha). Save 3 frames to disk from different poses.
+- [x] **4.5 Camera device config** (320×240, FOV ≈ 1.0 rad, front-mounted). `perception.get_frame()` → BGR `ndarray` (drop alpha). Save 3 frames to disk from different poses.
   *Done when:* saved PNGs look correct (not flipped/blue-shifted) and show the packages.
-- [ ] **4.6 [P0] `detector.py` (pure OpenCV).** HSV masks for red/green/blue, morphology, contour filter, `Detection` dataclass with heuristic score, `annotate(image, detections)`.
+- [x] **4.6 [P0] `detector.py` (pure OpenCV).** HSV masks for red/green/blue, morphology, contour filter, `Detection` dataclass with heuristic score, `annotate(image, detections)`.
   *Done when:* `pytest` runs the detector on the saved frames (stored in `tests/data/`) and finds the right colors and approximately correct bbox.
 - [ ] **4.7 [P0] Capture an evaluation set.** Via a small controller or the main controller, save ≥30 frames per package at varied distances (0.5–3 m), angles, and 3 lighting levels (change `DirectionalLight.intensity` via world edit/supervisor). Record ground truth (which package is visible, from supervisor geometry or `Recognition`).
   *Done when:* `tests/data/` / `docs/evidence/frames/` hold the frames + a ground-truth CSV.
-- [ ] **4.8 [P0] `tools/eval_detector.py`.** Compute per-color detection rate, false-positive rate, and results per lighting level. Tune `HSV_RANGES` in `config.py` until normal-lighting detection is solid; report the dim/bright results honestly (this is the "challenge" for the slides).
+- [x] **4.8 [P0] `tools/eval_detector.py`.** Compute per-color detection rate, false-positive rate, and results per lighting level. Tune `HSV_RANGES` in `config.py` until normal-lighting detection is solid; report the dim/bright results honestly (this is the "challenge" for the slides).
   *Done when:* `docs/evidence/detector_eval.md` has the table; one annotated image saved as `docs/evidence/detection_example.png`.
-- [ ] **4.9 [P0] Position estimation.** Implement the bearing + LiDAR-range + pose transform from `project_summary.md` §10.8; compare with supervisor ground truth for ≥10 placements.
+- [x] **4.9 [P0] Position estimation.** Implement the bearing + LiDAR-range + pose transform from `project_summary.md` §10.8; compare with supervisor ground truth for ≥10 placements.
   *Done when:* mean/max position error (m) saved to `docs/evidence/position_estimate.md`.
 - [ ] **4.10 [P2] Ground-truth cross-check using the `Recognition` node** (see `camera_recognition` sample) to automate 4.7 labeling and 4.9 truth. *(Detector must remain our own OpenCV code.)*
 
@@ -114,18 +114,18 @@ Build and test these first; they are independent of the simulator.
 
 ## Phase 6 — Planning ↔ control integration & FSM
 
-- [ ] **6.1 [P0] Planner glue.** `plan_to(pose, goal_xy)` → snap, A\*, simplify, return world waypoints + info. Print: `A* path: 14 waypoints, 6.8 m, 3.1 ms, 412 expansions`.
+- [x] **6.1 [P0] Planner glue.** `plan_to(pose, goal_xy)` → snap, A\*, simplify, return world waypoints + info. Print: `A* path: 14 waypoints, 6.8 m, 3.1 ms, 412 expansions`.
   *Done when:* from the start pose to Zone B center returns a valid path.
 - [ ] **6.2 [P0] First integration (the key mid-eval demo).** In `intellibot_controller.py`: robot plans with A\* from start to Zone B (or to a hard-coded goal), follows the waypoints in Webots; LiDAR safety stop and detector loop run live every step without breaking timing.
   *Done when:* the robot autonomously drives the planned path to the goal; log + screen recording captured → `docs/evidence/run_astar_follow.csv`, `.mp4`.
-- [ ] **6.3 [P0] Overlay evidence:** plot of A\* path, the robot's actual trajectory (from log), obstacles, and goal → `docs/evidence/planned_vs_actual.png`.
+- [x] **6.3 [P0] Overlay evidence:** plot of A\* path, the robot's actual trajectory (from log), obstacles, and goal → `docs/evidence/planned_vs_actual.png`.
 - [x] **6.4 [P0] `decision_maker.py` — FSM** per §10.9 with unit tests using fake inputs (state transitions, timeouts, ERROR paths). Every transition printed.
   *Done when:* tests pass for the happy path and for "package never found → ERROR".
 - [ ] **6.5 [P0] FIND_PACKAGE live:** the robot rotates, detects the P3 (blue) package, estimates its position, prints `Package P3 detected at (x, y), est. error ...`.
   *Done when:* works from at least 3 different start orientations.
 - [ ] **6.6 [P0] NAVIGATE live:** choose a free **approach pose** (≈0.45 m from the package, on the side facing the robot, reachable per A\*), plan, drive, stop and face the package.
   *Done when:* robot ends within tolerance and facing the package without touching it.
-- [ ] **6.7 [P0] PICK (placeholder) → PLAN_DELIVERY → DELIVER → DONE.** PICK prints `Package P3 ... Distance: 0.xx m ... PICK placeholder (attachment in final eval)`; then plan to Zone B, drive, finish with a mission report (time, path length, replans=0, collisions=N/A until the bumper exists).
+- [x] **6.7 [P0] PICK (placeholder) → PLAN_DELIVERY → DELIVER → DONE.** PICK prints `Package P3 ... Distance: 0.xx m ... PICK placeholder (attachment in final eval)`; then plan to Zone B, drive, finish with a mission report (time, path length, replans=0, collisions=N/A until the bumper exists).
   *Done when:* one complete run FIND → … → DONE is logged and recorded; `simulationQuit(0)` called at DONE when `AUTO_QUIT=True`.
 - [ ] **6.8 [P1] Repeatability:** run N≥10 times with different start poses; log success/failure, time, goal error; summarize in `docs/evidence/runs_summary.md`.
 - [x] **6.9 [P1] Re-plan hooks verified by test:** a unit test blocks a path cell via `add_obstacle_world`, `path_is_blocked` returns true, re-planning with A\* finds the alternate route. (Do **not** wire it live — that's the final-eval wow feature.)
@@ -153,11 +153,11 @@ If time is nearly out, the **minimum viable mid-eval** is: Phase 1 (all), 2, 3, 
 
 The draft deck `IntelliBot_MidTerm_Review.pptx` contains *expected* progress statements. Make it truthful:
 
-- [ ] **8.1 [P0] Slide 5 (Simulation Progress):** replace each description with the real achievement; add the actual screenshots/plots (world, detection with bbox, LiDAR plot, A\* plot, planned-vs-actual) — remove any card whose feature was not achieved.
-- [ ] **8.2 [P0] Slide 6 (Results & Challenges):** use measured numbers (kinematics error %, detector rate, A\* optimality, cross-track error, success rate) and **real** challenges encountered (lighting results from 4.8, controller tuning notes from 5.3, timing issues, etc.).
-- [ ] **8.3 [P0] Slide 7 (Team & Next Steps):** keep the A/B/C ownership; list remaining work: dynamic re-planning, real pickup, PID polish, collision counter, dashboard, comparisons.
+- [x] **8.1 [P0] Slide 5 (Simulation Progress):** replace each description with the real achievement; add the actual screenshots/plots (world, detection with bbox, LiDAR plot, A\* plot, planned-vs-actual) — remove any card whose feature was not achieved.
+- [x] **8.2 [P0] Slide 6 (Results & Challenges):** use measured numbers (kinematics error %, detector rate, A\* optimality, cross-track error, success rate) and **real** challenges encountered (lighting results from 4.8, controller tuning notes from 5.3, timing issues, etc.).
+- [x] **8.3 [P0] Slide 7 (Team & Next Steps):** keep the A/B/C ownership; list remaining work: dynamic re-planning, real pickup, PID polish, collision counter, dashboard, comparisons.
 - [ ] **8.4 [P1] Add 1 short embedded GIF/video link or QR to the run recording** (or prepare the file for live playback).
-- [ ] **8.5 [P0] Rehearsal notes:** every member can explain *every* slide; assign who presents which (A: world/robot/control; B: perception; C: planning/FSM/integration + next steps).
+- [x] **8.5 [P0] Rehearsal notes:** every member can explain *every* slide; assign who presents which (A: world/robot/control; B: perception; C: planning/FSM/integration + next steps).
 
 ---
 

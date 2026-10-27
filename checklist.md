@@ -68,7 +68,7 @@ Build and test these first; they are independent of the simulator.
   *Done when:* a table of commanded vs measured v, ω with % error is saved to `docs/evidence/kinematics_validation.md` (expect < ~5–10 %; if larger, investigate wheel radius/separation/slip and fix `config.py`).
 - [x] **3.4 [P0] Odometry vs ground truth.** Implement encoder odometry in the main controller path (or in drive_test); run line, square, and arc trajectories; log odometry and GPS+IMU pose.
   *Done when:* overlay plot `docs/evidence/odometry_vs_gps.png` + final error numbers saved.
-- [ ] **3.5 [P2] Pen trail:** add a `Pen` node (see `pen` sample) to draw the robot's actual path on the floor, controllable on/off. Useful for the demo visual.
+- [x] **3.5 [P2] Pen trail:** add a `Pen` node (see `pen` sample) to draw the robot's actual path on the floor, controllable on/off. Useful for the demo visual.
 
 ---
 
@@ -89,13 +89,13 @@ Build and test these first; they are independent of the simulator.
   *Done when:* saved PNGs look correct (not flipped/blue-shifted) and show the packages.
 - [x] **4.6 [P0] `detector.py` (pure OpenCV).** HSV masks for red/green/blue, morphology, contour filter, `Detection` dataclass with heuristic score, `annotate(image, detections)`.
   *Done when:* `pytest` runs the detector on the saved frames (stored in `tests/data/`) and finds the right colors and approximately correct bbox.
-- [ ] **4.7 [P0] Capture an evaluation set.** Via a small controller or the main controller, save ≥30 frames per package at varied distances (0.5–3 m), angles, and 3 lighting levels (change `DirectionalLight.intensity` via world edit/supervisor). Record ground truth (which package is visible, from supervisor geometry or `Recognition`).
+- [x] **4.7 [P0] Capture an evaluation set.** Via a small controller or the main controller, save ≥30 frames per package at varied distances (0.5–3 m), angles, and 3 lighting levels (change `DirectionalLight.intensity` via world edit/supervisor). Record ground truth (which package is visible, from supervisor geometry or `Recognition`).
   *Done when:* `tests/data/` / `docs/evidence/frames/` hold the frames + a ground-truth CSV.
 - [x] **4.8 [P0] `tools/eval_detector.py`.** Compute per-color detection rate, false-positive rate, and results per lighting level. Tune `HSV_RANGES` in `config.py` until normal-lighting detection is solid; report the dim/bright results honestly (this is the "challenge" for the slides).
   *Done when:* `docs/evidence/detector_eval.md` has the table; one annotated image saved as `docs/evidence/detection_example.png`.
 - [x] **4.9 [P0] Position estimation.** Implement the bearing + LiDAR-range + pose transform from `project_summary.md` §10.8; compare with supervisor ground truth for ≥10 placements.
   *Done when:* mean/max position error (m) saved to `docs/evidence/position_estimate.md`.
-- [ ] **4.10 [P2] Ground-truth cross-check using the `Recognition` node** (see `camera_recognition` sample) to automate 4.7 labeling and 4.9 truth. *(Detector must remain our own OpenCV code.)*
+- [x] **4.10 [P2] Ground-truth cross-check using the `Recognition` node** (see `camera_recognition` sample) to automate 4.7 labeling and 4.9 truth. *(Detector must remain our own OpenCV code.)*
 
 ---
 
@@ -127,7 +127,7 @@ Build and test these first; they are independent of the simulator.
   *Done when:* robot ends within tolerance and facing the package without touching it.
 - [x] **6.7 [P0] PICK (placeholder) → PLAN_DELIVERY → DELIVER → DONE.** PICK prints `Package P3 ... Distance: 0.xx m ... PICK placeholder (attachment in final eval)`; then plan to Zone B, drive, finish with a mission report (time, path length, replans=0, collisions=N/A until the bumper exists).
   *Done when:* one complete run FIND → … → DONE is logged and recorded; `simulationQuit(0)` called at DONE when `AUTO_QUIT=True`.
-- [ ] **6.8 [P1] Repeatability:** run N≥10 times with different start poses; log success/failure, time, goal error; summarize in `docs/evidence/runs_summary.md`.
+- [x] **6.8 [P1] Repeatability:** run N≥10 times with different start poses; log success/failure, time, goal error; summarize in `docs/evidence/runs_summary.md`.
 - [x] **6.9 [P1] Re-plan hooks verified by test:** a unit test blocks a path cell via `add_obstacle_world`, `path_is_blocked` returns true, re-planning with A\* finds the alternate route. (Do **not** wire it live — that's the final-eval wow feature.)
 - [ ] **6.10 [P2] In-sim `Display` overlay** (see `display` sample): draw grid, path, robot, state text. Strong visual if time allows; otherwise skip.
 - [ ] **6.11 [P2] `LED`/state color indicator per FSM state.**

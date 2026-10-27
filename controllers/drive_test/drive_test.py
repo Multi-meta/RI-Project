@@ -13,6 +13,9 @@ controller = drive_test). Mode is chosen by the DRIVE_TEST_MODE env var:
     snapshot    top-down + angled screenshots -> docs/evidence/ (Phase 2.2)
     capture     spin in place like FIND_PACKAGE; save camera frames every 30 deg
                 + print HSV detections -> docs/evidence/frames/spin_*.png
+    capture_set Phase 4.7/4.10: 108-frame evaluation set (3 packages x 4
+                distances x 3 angles x 3 lightings) with Recognition ground
+                truth -> docs/evidence/frames/set/ + ground_truth.csv
     lidar       rotate one slow turn logging raw 360-ray scans
                 -> logs/lidar_raw.csv; prints OBSTACLE AHEAD when the front
                 cone closes (Phase 4.2/4.3). Calibrate OFFLINE with
@@ -362,6 +365,92 @@ class DriveTest:
         self.stop()
         print(f"[lidar] wrote {rows} raw scans -> {path}")
         print("[lidar] now run: python tools/calibrate_lidar.py")
+
+    def run_capture_set(self):
+        """Phase 4.7 + 4.10: systematic detector evaluation set.
+
+        For every package x distance (0.5/1/2/3 m) x view angle (-30/0/+30
+        deg) x lighting (normal/dim/bright): teleport the robot to a pose
+        facing the package, change the DirectionalLight intensities via the
+        supervisor, save ONE camera frame, and record ground truth from the
+        camera's Recognition node (which PKG_* models are visible).
+        Writes docs/evidence/frames/set/*.png, frames/ground_truth.csv
+        (long format) and logs/detector_frames_index.csv.
+        """
+        import cv2
+        import numpy as np
+        cam = self.robot.getDevice(config.CAMERA_NAME)
+        cam.enable(self.dt)
+        cam.recognitionEnable(self.dt)
+        w, h = cam.getWidth(), cam.getHeight()
+        out_dir = os.path.join(EVIDENCE_DIR, "frames", "set")
+        os.makedirs(out_dir, exist_ok=True)
+        try:
+            self.robot.getDevice(config.PEN_NAME).write(False)   # keep frames clean
+        except Exception:
+            pass
+        light = self.robot.getFromDef("DIRLIGHT_1")
+        light_amb = light.getField("ambientIntensity")
+        light_int = light.getField("intensity")
+
+        pkg_pos = {d: (x, y) for d, x, y, _c in config.PACKAGES}
+        lightings = [("normal", 0.8, 0.5), ("dim", 0.45, 0.3),
+                     ("bright", 1.2, 0.7)]
+        idx = 0
+        gt, index = [], []
+        self_node = self.robot.getSelf()
+        for pid, (px, py) in pkg_pos.items():
+            base = math.atan2(0.0 - py, 0.0 - px)     # package -> arena centre
+            for dist in (0.5, 1.0, 2.0, 3.0):
+                for a_deg in (-30.0, 0.0, 30.0):
+                    a = math.radians(a_deg)
+                    rx = px + dist * math.cos(base + a)
+                    ry = py + dist * math.sin(base + a)
+                    yaw = base + a + math.pi          # face the package
+                    self_node.getField("translation").setSFVec3f([rx, ry, 0.0])
+                    self_node.getField("rotation").setSFRotation([0, 0, 1, yaw])
+                    self_node.resetPhysics()
+                    for name, inten, amb in lightings:
+                        light_int.setSFFloat(inten)
+                        light_amb.setSFFloat(amb)
+                        self.hold(0.0, 0.0, 0.25)     # settle + exposure
+                        img = np.frombuffer(cam.getImage(), np.uint8).reshape(
+                            h, w, 4)[:, :, :3].copy()
+                        frame = f"f{idx:03d}.png"
+                        cv2.imwrite(os.path.join(out_dir, frame), img)
+                        raw_models = [o.getModel() for o in
+                                      cam.getRecognitionObjects()]
+                        recognized = set()
+                        for model in raw_models:
+                            if "PKG_" in model:
+                                recognized.add(model.split("_")[-1])
+                        for pshort in ("P1", "P2", "P3"):
+                            gt.append((frame, pshort,
+                                       1 if pshort in recognized else 0))
+                        index.append((frame, pid, dist, a_deg, name,
+                                      len(recognized)))
+                        if pid in raw_models:
+                            mark = "target OK"
+                        else:
+                            mark = "target NOT recognized"
+                        print(f"[capture_set] {frame} {pid} d={dist} m "
+                              f"a={a_deg:+.0f} light={name} "
+                              f"raw={len(raw_models)} {raw_models} -> {mark}")
+                        idx += 1
+        self.stop()
+        with open(os.path.join(out_dir, "ground_truth.csv"), "w",
+                  newline="") as f:
+            wr = csv.writer(f)
+            wr.writerow(["frame", "pkg", "present"])
+            wr.writerows(gt)
+        with open(os.path.join(LOG_DIR, "detector_frames_index.csv"), "w",
+                  newline="") as f:
+            wr = csv.writer(f)
+            wr.writerow(["frame", "target", "distance_m", "angle_deg",
+                         "lighting", "recognized_count"])
+            wr.writerows(index)
+        print(f"[capture_set] wrote {idx} frames -> {out_dir}")
+        print("[capture_set] now run: python tools/eval_detector.py")
 
 
 def _pct(meas, cmd):

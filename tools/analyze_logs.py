@@ -164,7 +164,7 @@ def campaign_section(lines):
         goal = math.hypot(float(last["x"]) - config.ZONE_B_CENTER[0],
                           float(last["y"]) - config.ZONE_B_CENTER[1])
         table.append(f"| {idx} | {result} | {dur:.1f} | {goal:.2f} |")
-    block = (f"**Success rate: {ok}/{len(paths)}**", "")
+    block = [f"**Success rate: {ok}/{len(paths)}**", ""]
     lines.append("## Repeatability campaign (different start poses)\n")
     lines.extend(table + block)
     with open(os.path.join(EV, "runs_summary.md"), "w") as f:

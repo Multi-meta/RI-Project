@@ -27,6 +27,11 @@ OUT_PNG = os.path.join(ROOT, "docs", "evidence", "detection_example.png")
 
 
 def main(frames_dir=None):
+    # prefer the systematic capture set (Phase 4.7) when present
+    set_dir = os.path.join(ROOT, "docs", "evidence", "frames", "set")
+    if frames_dir is None and os.path.exists(
+            os.path.join(set_dir, "ground_truth.csv")):
+        frames_dir = set_dir
     frames_dir = frames_dir or os.path.join(ROOT, "docs", "evidence", "frames")
     gt_path = os.path.join(frames_dir, "ground_truth.csv")
     if not os.path.isdir(frames_dir) or not os.path.exists(gt_path):
@@ -38,6 +43,15 @@ def main(frames_dir=None):
     results = {}   # color -> {"tp":, "fn":, "fp":}
     for color in config.HSV_RANGES:
         results[color] = {"tp": 0, "fn": 0, "fp": 0}
+
+    # optional lighting index from capture_set (logs/detector_frames_index.csv)
+    lighting_of = {}
+    idx_path = os.path.join(ROOT, "logs", "detector_frames_index.csv")
+    if os.path.exists(idx_path):
+        with open(idx_path) as f:
+            for row in csv.DictReader(f):
+                lighting_of[row["frame"]] = row["lighting"]
+    light_results = {}
 
     annotated_example = None
     n = 0
@@ -71,14 +85,20 @@ def main(frames_dir=None):
                     present.add(detector.color_of_pkg(pkg))
                 except KeyError:
                     present.add(pkg)
-            for color in results:
-                if color in present:
-                    if color in det_colors:
-                        results[color]["tp"] += 1
-                    else:
-                        results[color]["fn"] += 1
-                elif color in det_colors:
-                    results[color]["fp"] += 1
+            lit = lighting_of.get(name, "normal")
+            if lit not in light_results:
+                light_results[lit] = {c: {"tp": 0, "fn": 0, "fp": 0}
+                                      for c in config.HSV_RANGES}
+            buckets = [("all", results), ("lit", light_results[lit])]
+            for _tag, bucket in buckets:
+                for color in bucket:
+                    if color in present:
+                        if color in det_colors:
+                            bucket[color]["tp"] += 1
+                        else:
+                            bucket[color]["fn"] += 1
+                    elif color in det_colors:
+                        bucket[color]["fp"] += 1
             if annotated_example is None and dets:
                 annotated_example = detector.annotate(img, dets)
 
@@ -89,10 +109,24 @@ def main(frames_dir=None):
         total = r["tp"] + r["fn"]
         rate = 100.0 * r["tp"] / total if total else float("nan")
         lines.append(f"| {color} | {rate:.1f}% ({r['tp']}/{total}) | {r['fp']} |")
-    lines.append(f"\nSample: {n} frames from one in-place spin capture at the "
-                 "start pose (packages at ~3.1 m). More frames per package at "
-                 "varied distances/angles and 3 lighting levels are still to be "
-                 "captured (checklist 4.7) before quoting these rates as final.\n")
+    if light_results:
+        lines.append("\n## Per-lighting breakdown (capture_set, 4.7)\n")
+        lines.append("| lighting | color | detection rate | false positives |")
+        lines.append("|---|---|---|---|")
+        for lit in ("normal", "dim", "bright"):
+            if lit not in light_results:
+                continue
+            for color, r in light_results[lit].items():
+                total = r["tp"] + r["fn"]
+                rate = 100.0 * r["tp"] / total if total else float("nan")
+                lines.append(f"| {lit} | {color} | {rate:.1f}% "
+                             f"({r['tp']}/{total}) | {r['fp']} |")
+    lines.append(f"\nSample: {n} frames"
+                 + (" from the systematic capture set (3 packages x 4 "
+                    "distances x 3 angles x 3 lightings, Recognition ground "
+                    "truth)." if light_results else
+                    " from one in-place spin capture at the start pose "
+                    "(packages at ~3.1 m)."))
     os.makedirs(os.path.dirname(OUT_MD), exist_ok=True)
     with open(OUT_MD, "w") as f:
         f.write("\n".join(lines))

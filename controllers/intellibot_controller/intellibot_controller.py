@@ -93,6 +93,13 @@ def main():
         led = robot.getDevice(config.LED_NAME)
     except Exception:
         pass
+    pen = None
+    if config.PEN_ENABLED:
+        try:
+            pen = robot.getDevice(config.PEN_NAME)
+            pen.write(True)                     # draw the driven path (3.5)
+        except Exception:
+            pass
 
     grid = build_warehouse_grid()
     planner = planner_factory(grid)
@@ -161,6 +168,21 @@ def main():
                x=round(pose[0], 4), y=round(pose[1], 4), theta=round(pose[2], 4),
                state=fsm.state, wp_idx=-1, n_detections=0)
     logger.close()
+    # Phase 3.5 evidence: top-down screenshot with the orange pen trail
+    if pen is not None and fsm.state == "DONE":
+        try:
+            vp = robot.getFromDef("VIEWPOINT")
+            pos, ori = config.VIEW_TOPDOWN
+            vp.getField("position").setSFVec3f([float(v) for v in pos.split()])
+            vp.getField("orientation").setSFRotation(
+                [float(v) for v in ori.split()])
+            for _ in range(12):
+                robot.step(timestep)            # let the camera render
+            out = os.path.join(_ROOT, "docs", "evidence", "world_trail.png")
+            robot.exportImage(out, 95)
+            print(f"[INTELLIBOT] trail screenshot -> {out}")
+        except Exception as exc:
+            print(f"[INTELLIBOT] trail screenshot failed: {exc}")
     sys.stdout.flush()          # DONE/REPORT prints otherwise lost to buffering
     if config.AUTO_QUIT and fsm.state in ("DONE", "ERROR"):
         robot.simulationQuit(0 if fsm.state == "DONE" else 1)

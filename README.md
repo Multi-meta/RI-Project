@@ -94,6 +94,8 @@ DRIVE_TEST_MODE=odometry    $W   # Phase 3.4: -> logs/odometry.csv
 DRIVE_TEST_MODE=snapshot webots --batch --mode=realtime --stdout --stderr worlds/warehouse_drive_test.wbt
                                  # Phase 2.2: world_topdown.png / world_angle.png (needs rendering)
 DRIVE_TEST_MODE=capture     $W   # Phase 4.7: spin frames -> docs/evidence/frames/spin_*.png
+DRIVE_TEST_MODE=capture_set $W   # Phase 4.7/4.10: 108-frame eval set (dist x angle x lighting)
+                                 #   with Recognition ground truth -> frames/set/ + index CSV
 DRIVE_TEST_MODE=lidar       $W   # Phase 4.2/4.4: raw scans -> logs/lidar_raw.csv
 python tools/calibrate_lidar.py  # ray order + range table -> lidar_validation.md + lidar_scan.png
 python tools/analyze_logs.py     # tables + odometry_vs_gps.png + kinematics_validation.md
@@ -115,7 +117,7 @@ python tools/analyze_logs.py          # metrics.md + odometry overlay + planned-
 python tools/plot_run.py              # planned_vs_actual.png from logs/run.csv (6.3)
 python tools/plot_lidar.py            # lidar_scan.png (after logs/lidar_scan.csv exists)
 python tools/build_frame_gt.py        # ground_truth.csv for spin frames (geometry-based)
-python tools/eval_detector.py         # detector_eval.md (after frame capture)
+python tools/eval_detector.py         # detector_eval.md incl. per-lighting table
 python tools/eval_position.py         # position_estimate.md (pinhole-fallback error)
 python tools/check_evidence.py        # evidence inventory -> inventory.md (7.2)
 ```

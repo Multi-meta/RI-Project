@@ -199,3 +199,31 @@ from real logs — do not invent.
   + Phase6_7_8_9_Explained.pdf (6 pages, LibreOffice via tools/md_to_docx.py)
   mirroring Phase2_3_Explained.pdf, including the problems-hit section and
   the run cheat sheet.
+
+- 2026-10-07 (evening) — Phase 3.5 — Pen device added to the robot (orange
+  trail, leadSize 0.01); the mission controller enables writing at start and
+  takes an automatic top-down screenshot with the trail after DONE
+  (docs/evidence/world_trail.png).
+- 2026-10-07 (evening) — Phase 4.10 — `recognition Recognition {}` added to
+  the camera + `model`/`recognitionColors` on every package Solid (Webots
+  recognizes only Solids with recognitionColors). drive_test `capture_set`
+  mode captures the full 4.7 evaluation set: 3 packages x 4 distances
+  (0.5/1/2/3 m) x 3 angles x 3 lightings (normal/dim/bright via supervisor
+  light changes) = 108 frames with Recognition-node ground truth ->
+  frames/set/ + logs/detector_frames_index.csv.
+- 2026-10-07 (evening) — Phase 4.7/4.8 measured — eval_detector now splits by
+  lighting: detection rate red 84.6%, green 84.0%, blue 77.3%, IDENTICAL
+  across normal/dim/bright (the two-light fix makes the detector
+  lighting-invariant); only 3 false positives in 108 frames. Misses are
+  geometric: package overfills the frame at 0.5 m or is clipped at ±30 deg /
+  1 m; at 2-3 m detection is near-perfect.
+- 2026-10-07 (evening) — Phase 4.9 (design gap found by the campaign): the
+  non-target packages were physical obstacles but not on the planning grid,
+  so approach paths grazed them and tripped the LiDAR safety stop (campaign
+  run 3). Fix: FIND_PACKAGE now estimates and maps EVERY package it sees
+  (vision -> grid), logging "Other packages mapped as obstacles".
+- 2026-10-07 (evening) — Phase 6.8 COMPLETE — campaign re-run with
+  LOS/collision-validated start poses (10/10 START → DONE, success rate
+  10/10, goal error 0.08-0.13 m; two earlier failures were diagnosis gold:
+  ball occluding P3 and crate blocking LOS — starts now verified against
+  static map AND other packages). docs/evidence/runs_summary.md.

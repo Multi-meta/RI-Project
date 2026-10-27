@@ -155,10 +155,18 @@ def build_robot(controller):
       fieldOfView {config.CAMERA_FOV}
       width {config.CAMERA_WIDTH}
       height {config.CAMERA_HEIGHT}
+      recognition Recognition {{ frameColor 0.93 0.83 0 }}
     }}
     GPS {{ name "{config.GPS_NAME}" }}
     InertialUnit {{ name "{config.IMU_NAME}" }}
     LED {{ name "{config.LED_NAME}" }}
+    Pen {{
+      translation 0 0 0.001
+      name "{config.PEN_NAME}"
+      leadSize 0.01
+      inkColor 1 0.42 0.05
+      inkDensity 1
+    }}
     Display {{
       translation 0 0 {config.LIDAR_MOUNT_Z + 0.02}
       name "{config.DISPLAY_NAME}"
@@ -203,9 +211,9 @@ def build_world(controller):
     # one of them: with a single light the package faces pointing at the
     # robot got ambient only (HSV value ~46 < detector minimum) and FIND_PACKAGE
     # never saw them.
-    for d in ("0.3 -0.4 -1", "-0.3 0.4 -1"):
-        w.append(f"DirectionalLight {{ direction {d} intensity 0.8 "
-                 f"ambientIntensity 0.5 castShadows FALSE }}")
+    for i, d in enumerate(("0.3 -0.4 -1", "-0.3 0.4 -1"), start=1):
+        w.append(f"DEF DIRLIGHT_{i} DirectionalLight {{ direction {d} "
+                 f"intensity 0.8 ambientIntensity 0.5 castShadows FALSE }}")
     w.append("")
 
     # floor (top face at z = 0) — collides, everything rests on it
@@ -256,11 +264,19 @@ def build_world(controller):
         w.append(solid(d, f"{px} {py} 0.005", f"{psx} {psy} 0.01",
                        COLORS[c], bounding=False))
 
-    # packages — pushable Solids with physics
+    # packages — pushable Solids with physics (+ model/recognitionColors for
+    # the Recognition node: Webots only recognizes Solids with the
+    # recognitionColors field; model is the reported label)
     s = config.PKG_SIZE
+    pkg_rgb = {"red": "1 0 0", "green": "0 1 0", "blue": "0 0 1"}
     for defname, x, y, color in config.PACKAGES:
-        w.append(solid(defname, f"{x} {y} {s / 2}", f"{s} {s} {s}",
-                       COLORS[color], physics="Physics { density -1 mass 0.5 }"))
+        body = solid(defname, f"{x} {y} {s / 2}", f"{s} {s} {s}",
+                     COLORS[color], physics="Physics { density -1 mass 0.5 }")
+        body = body.replace(
+            f'name "{defname.lower()}"',
+            'model "%s"\n  recognitionColors [ %s ]\n  name "%s"'
+            % (defname, pkg_rgb[color], defname.lower()))
+        w.append(body)
 
     # final-eval hook: dynamic obstacle, parked in a free corner off every route
     dx, dy = config.DYN_OBSTACLE_PARK

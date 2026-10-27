@@ -14,8 +14,8 @@ WorldInfo {
 }
 DEF VIEWPOINT Viewpoint { orientation -0.3483 0.5091 0.7871 1.4309 position -2.5000 -7.0000 8.5000 }
 Background { skyColor [ 0.75 0.8 0.85 ] }
-DirectionalLight { direction 0.3 -0.4 -1 intensity 0.8 ambientIntensity 0.5 castShadows FALSE }
-DirectionalLight { direction -0.3 0.4 -1 intensity 0.8 ambientIntensity 0.5 castShadows FALSE }
+DEF DIRLIGHT_1 DirectionalLight { direction 0.3 -0.4 -1 intensity 0.8 ambientIntensity 0.5 castShadows FALSE }
+DEF DIRLIGHT_2 DirectionalLight { direction -0.3 0.4 -1 intensity 0.8 ambientIntensity 0.5 castShadows FALSE }
 
 DEF FLOOR Solid {
   translation 0 0 -0.025
@@ -178,6 +178,8 @@ DEF PKG_P1 Solid {
   children [
     Shape { appearance Appearance { material Material { diffuseColor 1 0 0 } } geometry Box { size 0.2 0.2 0.2 } }
   ]
+  model "PKG_P1"
+  recognitionColors [ 1 0 0 ]
   name "pkg_p1"
   boundingObject Box { size 0.2 0.2 0.2 }
   physics Physics { density -1 mass 0.5 }
@@ -188,6 +190,8 @@ DEF PKG_P2 Solid {
   children [
     Shape { appearance Appearance { material Material { diffuseColor 0 1 0 } } geometry Box { size 0.2 0.2 0.2 } }
   ]
+  model "PKG_P2"
+  recognitionColors [ 0 1 0 ]
   name "pkg_p2"
   boundingObject Box { size 0.2 0.2 0.2 }
   physics Physics { density -1 mass 0.5 }
@@ -198,6 +202,8 @@ DEF PKG_P3 Solid {
   children [
     Shape { appearance Appearance { material Material { diffuseColor 0 0 1 } } geometry Box { size 0.2 0.2 0.2 } }
   ]
+  model "PKG_P3"
+  recognitionColors [ 0 0 1 ]
   name "pkg_p3"
   boundingObject Box { size 0.2 0.2 0.2 }
   physics Physics { density -1 mass 0.5 }
@@ -236,10 +242,18 @@ DEF INTELLIBOT Robot {
       fieldOfView 1.0
       width 320
       height 240
+      recognition Recognition { frameColor 0.93 0.83 0 }
     }
     GPS { name "gps" }
     InertialUnit { name "imu" }
     LED { name "status_led" }
+    Pen {
+      translation 0 0 0.001
+      name "pen"
+      leadSize 0.01
+      inkColor 1 0.42 0.05
+      inkDensity 1
+    }
     Display {
       translation 0 0 0.16
       name "dashboard"

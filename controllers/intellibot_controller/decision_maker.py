@@ -31,6 +31,7 @@ class DecisionMaker:
         self.state = "IDLE"
         self.t_start = 0.0
         self.pkg_pos = None             # estimated package world position
+        self._pkg_seen = {}             # pkg_id -> last seen world estimate
         self.approach_pose = None       # stand-off point we navigate to
         self.follower = None
         self.detection_streak = 0
@@ -62,6 +63,7 @@ class DecisionMaker:
         self.scan_angle_accum = 0.0
         self.mission_report = None
         self.pkg_pos = None
+        self._pkg_seen = {}
         self.log(f"[t={sim_time:.1f}s] Task: pick {config.TASK_PACKAGE} "
                  f"({config.TASK_PACKAGE_COLOR}), deliver to Zone {config.TASK_ZONE}")
         self._set_state("FIND_PACKAGE", sim_time)
@@ -75,13 +77,31 @@ class DecisionMaker:
         else:
             self.detection_streak = 0
 
+        # remember where ANY package was seen: the non-target packages are
+        # physical obstacles the approach path must plan around
+        for det in detections:
+            if det.pkg_id and det.pkg_id not in self._pkg_seen:
+                est = self.estimator(det, pose, scan, angles)
+                if est is not None:
+                    self._pkg_seen[det.pkg_id] = (est[0], est[1])
+
         if self.detection_streak >= config.DETECTION_CONSEC:
             est = self.estimator(target[0], pose, scan, angles)
             if est is not None:
                 px, py, phi, d = est
                 self.pkg_pos = (px, py)
                 if self.grid is not None:
+                    for pkg_id, (ox, oy) in self._pkg_seen.items():
+                        self.grid.add_obstacle_world(ox, oy,
+                                                     config.PKG_SIZE / 2)
                     self.grid.add_obstacle_world(px, py, config.PKG_SIZE / 2)
+                others = {k: v for k, v in self._pkg_seen.items()
+                          if k != config.TASK_PACKAGE}
+                if others:
+                    self.log("[t={:.1f}s] Other packages mapped as obstacles: "
+                             "{}".format(sim_time,
+                                         {k: (round(v[0], 2), round(v[1], 2))
+                                          for k, v in others.items()}))
                 self.log(f"[t={sim_time:.1f}s] Package {config.TASK_PACKAGE} "
                          f"detected at ({px:.2f}, {py:.2f}), range {d:.2f} m, "
                          f"bearing {math.degrees(phi):.1f} deg")

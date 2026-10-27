@@ -185,7 +185,7 @@ HSV_RANGES = {
     "green": [((40, 80, 60), (80, 255, 255))],
     "blue":  [((105, 80, 60), (135, 255, 255))],
 }
-MIN_CONTOUR_AREA = 150.0                      # px^2 at 320x240
+MIN_CONTOUR_AREA = 100.0                      # px^2 at 320x240 (P3 at ~4 m is ~14 px wide)
 ASPECT_MIN, ASPECT_MAX = 0.6, 1.6             # bbox aspect ratio window
 
 # Package position estimate
@@ -254,6 +254,8 @@ DISPLAY_NAME = "dashboard"
 DISPLAY_WIDTH = 320
 DISPLAY_HEIGHT = 200
 LED_NAME = "status_led"                       # FSM state color indicator (6.11)
+PEN_NAME = "pen"                              # floor trail (Phase 3.5)
+PEN_ENABLED = True                            # draw the driven path on the floor
 STATE_LED = {                                 # 0xRRGGBB per FSM state
     "IDLE": 0x888888,
     "FIND_PACKAGE": 0x0000FF,
@@ -270,14 +272,14 @@ STATE_LED = {                                 # 0xRRGGBB per FSM state
 # selects one; the supervisor teleports the robot there at startup and the
 # run logs to logs/run_<index>.csv.
 CAMPAIGN_STARTS = [
-    (0.0, -0.3, 0.0),
-    (0.5, -0.5, 0.7),
-    (-0.3, 0.2, 3.14),
-    (0.0, -1.5, 0.0),
-    (1.0, -0.3, 1.57),
-    (-1.0, -1.5, 0.0),
-    (0.0, 1.5, 3.14),
-    (2.0, 0.0, 3.14),
-    (-1.0, 1.5, -1.57),
-    (0.8, -1.2, 0.3),
-]
+    (-0.3, -0.3, 3.14),
+    (-3.0, -1.4, 0.39),
+    (-0.4, 2.4, -1.53),
+    (-2.6, 1.2, -0.57),
+    (0.8, -2.0, 2.15),
+    (-0.8, -1.8, 1.25),
+    (-2.0, -0.2, -0.06),
+    (0.4, 1.2, -2.0),
+    (1.0, 0.0, 3.37),
+    (-1.8, -1.2, 0.54),
+]  # collision-free AND line-of-sight to P3 verified (incl. other packages)  # LOS-verified, collision-free

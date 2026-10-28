@@ -283,3 +283,192 @@ CAMPAIGN_STARTS = [
     (1.0, 0.0, 3.37),
     (-1.8, -1.2, 0.54),
 ]  # collision-free AND line-of-sight to P3 verified (incl. other packages)  # LOS-verified, collision-free
+
+
+# ========================================================================
+# Part II (v2) Configuration — Final Evaluation Extensions
+# ========================================================================
+
+# ---------------------------------------------------------------- Multi-robot ---
+NUM_ROBOTS = 1                                 # Number of robots in scenario
+ROBOT_ID = 1                                   # This robot's ID (set at runtime)
+
+# Robot v2 dimensions (for manipulation capability)
+# ROBOT_RADIUS, ROBOT_HEIGHT kept from v1; arm stows within footprint
+ROBOT_V2_MASS = 8.0                           # kg (with arm)
+ARM_STOWED_HEIGHT = 0.4                        # m (within footprint)
+
+# ---------------------------------------------------------------- Sensor Suite v2 ---
+# Sensor device names (extend v1)
+REAR_CAMERA_NAME = "rear_camera"
+IR_SENSOR_NAMES = {
+    'front_left': "ir_fl",
+    'front_right': "ir_fr",
+    'left': "ir_l",
+    'right': "ir_r",
+    'rear_left': "ir_rl",
+    'rear_right': "ir_rr",
+    'front': "ir_f",
+    'rear': "ir_r_center"
+}
+SONAR_SENSOR_NAMES = {
+    'front': "sonar_f",
+    'rear': "sonar_r",
+    'left': "sonar_l",
+    'right': "sonar_r"
+}
+LIGHT_SENSOR_NAME = "light_sensor"
+BUMPER_NAMES = {
+    'front': "bumper_f",
+    'rear': "bumper_r"
+}
+
+# Sensor noise parameters (σ for Gaussian noise)
+SENSOR_NOISE = {
+    'gps_xy': 0.05,           # m
+    'imu_yaw': 0.05,          # rad (~3 degrees)
+    'lidar_range': 0.02,      # m
+    'ir_range': 0.05,         # m
+    'sonar_range': 0.03,      # m
+    'camera_brightness': 0.0, # (quality metric, not noise)
+}
+
+# Sensor mounting transforms (robot frame, x forward y left)
+SENSOR_POSITIONS = {
+    'gps': (0.0, 0.0, 0.15),
+    'imu': (0.0, 0.0, 0.05),
+    'lidar': (0.0, 0.0, 0.20),
+    'camera': (0.15, 0.0, 0.15),
+    'rear_camera': (-0.15, 0.0, 0.15),
+    'ir_fl': (0.15, 0.10, 0.10),
+    'ir_fr': (0.15, -0.10, 0.10),
+    'ir_l': (0.0, 0.15, 0.10),
+    'ir_r': (0.0, -0.15, 0.10),
+    'ir_rl': (-0.15, 0.10, 0.10),
+    'ir_rr': (-0.15, -0.10, 0.10),
+    'sonar_f': (0.15, 0.0, 0.10),
+    'sonar_r': (-0.15, 0.0, 0.10),
+}
+
+# ---------------------------------------------------------------- EKF Parameters ---
+EKF_Q = [0.02**2, 0.02**2, (2*math.pi/180)**2]  # Process noise [x, y, theta]
+EKF_R_GPS = [0.1**2, 0.1**2]                      # GPS measurement noise [x, y]
+EKF_R_IMU = (3*math.pi/180)**2                    # IMU measurement noise [theta]
+EKF_R_LANDMARK = [0.2**2, (10*math.pi/180)**2]    # Landmark [range, bearing]
+EKF_GATE_GPS = 9.21                               # Chi-square 2 DOF @ 99%
+EKF_GATE_IMU = 6.63                               # Chi-square 1 DOF @ 99%
+EKF_GATE_LANDMARK = 9.21                          # Chi-square 2 DOF @ 99%
+
+# ---------------------------------------------------------------- Tracking & Fusion ---
+TRACKER_CLUSTER_DISTANCE = 0.5                     # m
+TRACKER_GATE_THRESHOLD = 4.0                       # Chi-square 2 DOF
+TRACKER_MAX_AGE = 5                                # frames without update
+TRACKER_MIN_HITS = 3                               # min hits to be valid
+TRACKER_SPEED_THRESHOLD = 0.3                      # m/s for static/moving
+
+OBSTACLE_AGREE_THRESHOLD = 0.3                     # m for VERIFIED
+OBSTACLE_CONFLICT_THRESHOLD = 1.0                  # m for CONFLICT
+
+# ---------------------------------------------------------------- DWA Parameters ---
+DWA_V_SAMPLES = 10
+DWA_W_SAMPLES = 20
+DWA_DT = 0.2                                       # simulation timestep (s)
+DWA_SIM_TIME = 2.0                                 # simulation horizon (s)
+DWA_W_HEADING = 1.0
+DWA_W_DISTANCE = 1.0
+DWA_W_VELOCITY = 0.5
+DWA_ALLOW_REVERSE = True
+
+# ---------------------------------------------------------------- Rear Safety ---
+REAR_CLEAR_DIST = 1.0                              # m, no reverse if closer
+REAR_WARN_DIST = 2.0                               # m, warn threshold
+REAR_CRITICAL_TTC = 3.0                            # s, yield threshold
+REAR_WARN_TTC = 5.0                                # s, warning threshold
+
+# ---------------------------------------------------------------- Costmap ---
+COSTMAP_INFLATION_RADIUS = 0.25                    # m
+COSTMAP_PREDICTION_HORIZON = 3.0                   # s for tracked obstacles
+
+# ---------------------------------------------------------------- Recovery Behaviors ---
+RECOVERY_WAIT_TIME = 2.0                           # s, wait before rotate
+RECOVERY_ROTATE_SPEED = 0.3                        # rad/s
+RECOVERY_BACKUP_DIST = 0.3                         # m
+RECOVERY_TIMEOUT = 30.0                            # s, total recovery time
+
+# ---------------------------------------------------------------- Manipulation (v2) ---
+# Arm parameters (2R planar arm + lift)
+ARM_LINK1_LENGTH = 0.25                            # m
+ARM_LINK2_LENGTH = 0.20                            # m
+ARM_LIFT_MIN = 0.0                                 # m
+ARM_LIFT_MAX = 0.6                                 # m
+ARM_JOINT_LIMITS = [                               # (min, max) rad
+    (-math.pi, math.pi),      # shoulder
+    (-math.pi/2, math.pi/2),  # elbow
+]
+ARM_MAX_VELOCITY = 1.0                             # rad/s
+ARM_MAX_ACCELERATION = 2.0                         # rad/s^2
+
+# Gripper parameters
+GRIPPER_OPEN_WIDTH = 0.15                          # m
+GRIPPER_CLOSE_FORCE = 10.0                         # N
+GRIPPER_GRASP_WIDTH_MIN = 0.05                     # m
+GRIPPER_GRASP_WIDTH_MAX = 0.12                     # m
+GRIPPER_GRASP_FORCE_MIN = 2.0                      # N
+
+# Docking tolerances
+DOCK_LATERAL_TOL = 0.03                            # m
+DOCK_HEADING_TOL = 3.0 * math.pi / 180             # rad
+
+# ---------------------------------------------------------------- World v2 (Phase 13) ---
+# Not used yet - placeholders for Phase 13
+WORLD_V2_ARENA = (12.0, 8.0)                       # (width, depth) m
+SHELF_LEVELS = 3
+SHELF_BAYS = 3
+SLOT_HEIGHT = 0.25                                 # m per level
+PILE_LAYERS = 2
+PILE_BOX_COUNT = (9, 12)                           # (min, max) boxes
+
+# ---------------------------------------------------------------- Communications ---
+COMMS_RANGE = 20.0                                 # m, unlimited if None
+COMMS_DROP_RATE = 0.0                              # 0-1, packet loss
+COMMS_CHANNEL_HEARTBEAT = "heartbeat"
+COMMS_CHANNEL_TASK = "task"
+COMMS_CHANNEL_SLOT = "slot"
+HEARTBEAT_INTERVAL = 1.0                           # s
+
+# ---------------------------------------------------------------- Traffic ---
+TRAFFIC_ONE_WAY_AISLES = []                        # List of aisle IDs
+TRAFFIC_YIELD_DISTANCE = 1.0                       # m, yield at intersections
+TRAFFIC_RESERVATION_HORIZON = 5.0                  # s, space-time planning
+
+# ---------------------------------------------------------------- Fault Injection ---
+# Scenarios defined in scenario_runner.py
+# Fault types: 'lights_off', 'lights_dim', 'lidar_dropout', 'gps_dropout',
+#              'camera_blind', 'stuck_at', 'bias', 'comm_loss'
+
+# ---------------------------------------------------------------- Moving Obstacles ---
+MOVING_OBSTACLE_LANES = {
+    'patrol_north': [(0.0, 2.5), (7.0, 2.5)],      # patrol lane endpoints
+    'cross_aisle_1': [(2.0, -3.0), (2.0, 3.0)],    # crossing lane
+}
+MOVING_OBSTACLE_SPEEDS = {
+    'slow': 0.3,
+    'normal': 0.5,
+    'fast': 0.8
+}
+
+# ---------------------------------------------------------------- Random Seed ---
+RANDOM_SEED = 42                                   # for reproducibility
+
+# ---------------------------------------------------------------- Display Dashboard ---
+DISPLAY_WIDTH = 320
+DISPLAY_HEIGHT = 240
+DISPLAY_UPDATE_RATE = 0.5                          # s
+DASHBOARD_SHOW_COSTMAP = False                     # toggle for visualization
+
+# ---------------------------------------------------------------- Mission KPIs ---
+# Tracked in mission report
+# - time, path_length, replans, collisions, min_clearance
+# - grasp_success_rate, place_success_rate
+# - sensor_health_events
+# - ekf_rmse (vs ground truth)

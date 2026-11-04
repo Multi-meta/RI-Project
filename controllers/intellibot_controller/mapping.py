@@ -53,13 +53,20 @@ class OccupancyGrid:
 
     # ------------------------------------------------------------- occupancy
     def add_static_rect(self, cx, cy, sx, sy):
-        """Mark an axis-aligned rectangle (center + full sizes) as static."""
-        r0, c0 = self.world_to_cell(cx - sx / 2.0, cy - sy / 2.0)
-        r1, c1 = self.world_to_cell(cx + sx / 2.0, cy + sy / 2.0)
-        r0, r1 = max(r0, 0), min(r1, self.n_rows - 1)
-        c0, c1 = max(c0, 0), min(c1, self.n_cols - 1)
-        if r0 <= r1 and c0 <= c1:
-            self.static[r0:r1 + 1, c0:c1 + 1] = True
+        """Mark an axis-aligned rectangle (center + full sizes) as static.
+
+        A rect touching the arena boundary from outside (e.g. a perimeter
+        wall) marks the edge cells; one fully outside is ignored.
+        """
+        x0, x1 = cx - sx / 2.0, cx + sx / 2.0
+        y0, y1 = cy - sy / 2.0, cy + sy / 2.0
+        if x1 < self.x_min or x0 > self.x_max or y1 < self.y_min or y0 > self.y_max:
+            return
+        r0, c0 = self.world_to_cell(x0, y0)
+        r1, c1 = self.world_to_cell(x1, y1)
+        r0, r1 = min(max(r0, 0), self.n_rows - 1), min(max(r1, 0), self.n_rows - 1)
+        c0, c1 = min(max(c0, 0), self.n_cols - 1), min(max(c1, 0), self.n_cols - 1)
+        self.static[r0:r1 + 1, c0:c1 + 1] = True
 
     def add_obstacle_world(self, x, y, radius):
         """Mark a circular dynamic obstacle (final-eval hook)."""

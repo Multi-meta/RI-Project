@@ -12,6 +12,9 @@ fake planners/estimators and a simulated unicycle — no Webots required.
 
 The LiDAR scan is passed straight through to the WaypointFollower, whose
 BLOCKED status is the designated re-planning hook for the final eval.
+
+Package carrying is exposed as the ``carrying`` flag (True from PICK until
+DONE); the controller moves the package Solid accordingly via the Supervisor.
 """
 
 import math
@@ -36,6 +39,7 @@ class DecisionMaker:
         self.detection_streak = 0
         self.scan_angle_accum = 0.0
         self.pick_deadline = None
+        self.carrying = False           # package attached to the robot
         self.replans = 0
         self.path_length_total = 0.0
         self.last_info = {}
@@ -62,6 +66,7 @@ class DecisionMaker:
         self.scan_angle_accum = 0.0
         self.mission_report = None
         self.pkg_pos = None
+        self.carrying = False
         self.log(f"[t={sim_time:.1f}s] Task: pick {config.TASK_PACKAGE} "
                  f"({config.TASK_PACKAGE_COLOR}), deliver to Zone {config.TASK_ZONE}")
         self._set_state("FIND_PACKAGE", sim_time)
@@ -136,9 +141,9 @@ class DecisionMaker:
         if sim_time >= self.pick_deadline:
             px, py = self.pkg_pos
             d = math.hypot(pose[0] - px, pose[1] - py)
+            self.carrying = True
             self.log(f"[t={sim_time:.1f}s] Package {config.TASK_PACKAGE} — "
-                     f"Distance: {d:.2f} m — PICK placeholder "
-                     f"(attachment in final eval)")
+                     f"Distance: {d:.2f} m — picked up")
             self._set_state("PLAN_DELIVERY", sim_time)
         return 0.0, 0.0
 
@@ -163,6 +168,9 @@ class DecisionMaker:
         v, w = self.follower.update(pose, scan, angles)
         if self.follower.status == "REACHED":
             self.follower = None
+            self.carrying = False
+            self.log(f"[t={sim_time:.1f}s] Package {config.TASK_PACKAGE} "
+                     f"dropped in Zone {config.TASK_ZONE}")
             self._set_state("DONE", sim_time)
             self._emit_report(sim_time)
         elif self.follower.status == "BLOCKED":

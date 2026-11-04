@@ -70,8 +70,11 @@ webots worlds/warehouse.wbt           # or open the file in Webots and press ▶
 Watch the console: FSM transitions print as
 `[FSM] [t=12.3s] STATE: NAVIGATE -> PICK`, A* stats print per plan, and the
 run ends with `MISSION REPORT: time=..., path_length=..., replans=0,
-collisions=N/A`. `AUTO_QUIT=True` (config.py) ends the simulation at
-DONE/ERROR. The run log is written to `logs/run.csv`.
+collisions=N/A`. At PICK the robot lifts P3 onto its back (Supervisor
+teleport) and sets it down inside Zone B at DONE. An interactive run then
+idles with the dashboard live; with `RUN_INDEX` set, `AUTO_QUIT=True`
+(config.py) ends the simulation at DONE/ERROR. The run log is written to
+`logs/run.csv`.
 
 If Webots' Python command is set correctly the controller starts silently;
 `ModuleNotFoundError: cv2/numpy` means Preferences points at the wrong

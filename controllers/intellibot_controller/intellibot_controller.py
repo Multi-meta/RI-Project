@@ -53,6 +53,42 @@ def apply_campaign_start(robot):
     return idx, f"_{idx}"
 
 
+class PackageCarrier:
+    """Moves the task package Solid with the robot while fsm.carrying is set
+    (Supervisor teleport each step), then sets it down in front of the robot.
+
+    The package rides above the body and the LiDAR plane, so it never shows
+    up in the scan.
+    """
+    CARRY_Z = (config.BODY_HEIGHT / 2 + 0.08) + config.PKG_SIZE / 2 + 0.03
+    DROP_AHEAD = config.BODY_LENGTH / 2 + config.PKG_SIZE / 2 + 0.05
+
+    def __init__(self, robot):
+        self.node = robot.getFromDef(config.TASK_PACKAGE_DEF)
+        if self.node is None:
+            print(f"[INTELLIBOT] {config.TASK_PACKAGE_DEF} not in world — "
+                  f"package will not be carried")
+        self.attached = False
+
+    def update(self, pose, carrying):
+        if self.node is None:
+            return
+        x, y, theta = pose
+        if carrying:
+            self._place(x, y, self.CARRY_Z, theta)
+            self.attached = True
+        elif self.attached:
+            self._place(x + self.DROP_AHEAD * math.cos(theta),
+                        y + self.DROP_AHEAD * math.sin(theta),
+                        config.PKG_SIZE / 2, theta)
+            self.attached = False
+
+    def _place(self, x, y, z, yaw):
+        self.node.getField("translation").setSFVec3f([x, y, z])
+        self.node.getField("rotation").setSFRotation([0, 0, 1, yaw])
+        self.node.resetPhysics()
+
+
 def print_env_versions():
     """Phase 0.1: prove numpy/cv2/matplotlib import inside the controller."""
     import numpy
@@ -102,12 +138,29 @@ def main():
                                                     scan, angles)
 
     fsm = DecisionMaker(planner, estimator, grid=grid)
+    carrier = PackageCarrier(robot)
     logger = RunLogger(os.path.join(_ROOT, "logs",
                                     f"run{log_suffix}.csv")).start()
 
     log_every = max(1, int(0.1 / (timestep / 1000.0)))  # ~10 Hz
     dash_every = max(1, int(0.5 / (timestep / 1000.0)))  # ~2 Hz dashboard
     step_i = 0
+    finished = False
+    # quit at DONE only in unattended campaign runs; an interactive run keeps
+    # stepping (wheels stopped) so the camera/dashboard overlays stay live
+    quit_at_end = config.AUTO_QUIT and run_idx is not None
+
+    def finish():
+        # final row so the CSV records the terminal state even when DONE
+        # happens between two 10 Hz log ticks
+        pose = perception.get_pose()
+        logger.log(t=round(robot.getTime(), 3),
+                   x=round(pose[0], 4), y=round(pose[1], 4),
+                   theta=round(pose[2], 4),
+                   state=fsm.state, wp_idx=-1, n_detections=0)
+        logger.close()
+        sys.stdout.flush()      # DONE/REPORT prints otherwise lost to buffering
+
     while robot.step(timestep) != -1:
         sim_time = robot.getTime()
         pose = perception.get_pose()                    # x, y, theta (GPS+IMU)
@@ -120,13 +173,14 @@ def main():
                           timestep / 1000.0)
         wl, wr = inverse_kinematics(v, w)
         perception.set_wheel_speeds(wl, wr)
+        carrier.update(pose, fsm.carrying)
         set_state_led(led, fsm.state)
 
         if dash is not None and step_i % dash_every == 0:
             wps = fsm.follower.waypoints if fsm.follower else None
             dash.draw(pose, fsm.state, sim_time, wps, fsm.pkg_pos)
 
-        if step_i % log_every == 0:
+        if not finished and step_i % log_every == 0:
             logger.log(
                 t=round(sim_time, 3),
                 x=round(pose[0], 4), y=round(pose[1], 4),
@@ -144,25 +198,29 @@ def main():
                 n_detections=len(dets),
             )
         step_i += 1
+        if finished:
+            continue
         if fsm.state in ("DONE", "ERROR") and sim_time > fsm.t_start + 2.0:
-            # mission over: stop cleanly (simulationQuit alone proved
+            # mission over: stop logging (simulationQuit alone proved
             # unreliable in batch/realtime runs — run.csv kept growing to the
             # 300 s safety timeout after DONE)
-            print(f"[INTELLIBOT] mission {fsm.state} — stopping controller")
-            break
-        if sim_time > 300.0:                            # hard safety timeout
+            finished = True
+            finish()
+            if quit_at_end:
+                print(f"[INTELLIBOT] mission {fsm.state} — stopping controller")
+                break
+            print(f"[INTELLIBOT] mission {fsm.state} — robot idle, "
+                  f"dashboard stays live (pause/reset the simulation to stop)")
+            sys.stdout.flush()
+        elif sim_time > 300.0:                          # hard safety timeout
             print("[INTELLIBOT] 300 s timeout — stopping")
+            finished = True
+            finish()
             break
 
-    # final row so the CSV records the terminal state even when DONE happens
-    # between two 10 Hz log ticks
-    pose = perception.get_pose()
-    logger.log(t=round(robot.getTime(), 3),
-               x=round(pose[0], 4), y=round(pose[1], 4), theta=round(pose[2], 4),
-               state=fsm.state, wp_idx=-1, n_detections=0)
-    logger.close()
-    sys.stdout.flush()          # DONE/REPORT prints otherwise lost to buffering
-    if config.AUTO_QUIT and fsm.state in ("DONE", "ERROR"):
+    if not finished:            # Webots closed / reverted mid-mission
+        finish()
+    if quit_at_end and fsm.state in ("DONE", "ERROR"):
         robot.simulationQuit(0 if fsm.state == "DONE" else 1)
 
 

@@ -65,3 +65,10 @@ def test_aisles_are_wide_enough():
         arr = np.array(col_cells)
         # every vertical scan line must contain some free space
         assert not arr.all(), f"fully blocked column at x={x:.1f}"
+
+
+def test_all_four_perimeter_walls_marked():
+    """Walls sit just outside the arena; every edge row/col must be static."""
+    g = build_warehouse_grid()
+    assert g.static[0, :].all() and g.static[-1, :].all()
+    assert g.static[:, 0].all() and g.static[:, -1].all()

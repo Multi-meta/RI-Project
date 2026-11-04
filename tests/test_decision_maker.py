@@ -84,6 +84,24 @@ def test_happy_path_reaches_done():
     assert fsm.mission_report["path_length_m"] > 0
 
 
+def test_carrying_flag_spans_pick_to_done():
+    """carrying is False before PICK, True through DELIVER, False at DONE."""
+    sim = Unicycle(0.0, -0.3, 0.0)
+    fsm = DecisionMaker(straight_planner(), fixed_estimator(-3.1, -0.5))
+    carried_in = set()
+    t, dt = 0.0, 0.016
+    while fsm.state not in ("DONE", "ERROR") and t < 200.0:
+        v, w = fsm.update(sim.pose(), None, None, [FakeDet()], t, dt)
+        carried_in.add((fsm.state, fsm.carrying))
+        sim.step(v, w, dt)
+        t += dt
+    assert fsm.state == "DONE"
+    assert ("NAVIGATE", True) not in carried_in
+    assert ("DELIVER", True) in carried_in
+    assert ("DELIVER", False) not in carried_in
+    assert fsm.carrying is False
+
+
 def test_package_never_found_error():
     sim = Unicycle(0.0, -0.3, 0.0)
     fsm = DecisionMaker(straight_planner(), fixed_estimator(-3.1, -0.5))
@@ -112,7 +130,8 @@ def test_transitions_logged(capsys):
     assert "STATE: IDLE -> FIND_PACKAGE" in out
     assert "STATE: FIND_PACKAGE -> NAVIGATE" in out
     assert "STATE: NAVIGATE -> PICK" in out
-    assert "PICK placeholder" in out
+    assert "picked up" in out
+    assert "dropped in Zone" in out
     assert "MISSION REPORT" in out
 
 

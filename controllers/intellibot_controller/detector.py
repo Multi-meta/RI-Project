@@ -18,7 +18,7 @@ import config
 class Detection:
     """One detected package in one camera frame."""
 
-    def __init__(self, pkg_id, color, bbox, centroid, area, score, mask_area):
+    def __init__(self, pkg_id, color, bbox, centroid, area, score, mask_area, is_rear=False):
         self.pkg_id = pkg_id        # semantic id ("P1"/"P2"/"P3") via color
         self.color = color          # "red" / "green" / "blue"
         self.bbox = bbox            # (x, y, w, h) top-left pixel coords
@@ -26,6 +26,7 @@ class Detection:
         self.area = area            # contour area, px^2
         self.score = score          # heuristic 0..1
         self.mask_area = mask_area  # pixels in the color mask
+        self.is_rear = is_rear
 
     def __repr__(self):
         return (f"Detection({self.pkg_id}, {self.color}, bbox={self.bbox}, "
@@ -44,7 +45,7 @@ def pkg_of_color(color):
     return None
 
 
-def detect_colors(bgr, colors=None, hsv_ranges=None):
+def detect_colors(bgr, colors=None, hsv_ranges=None, is_rear=False):
     """Detect colored package cubes in a BGR ndarray.
 
     Returns list[Detection], best (largest valid) blob per requested color.
@@ -94,7 +95,7 @@ def detect_colors(bgr, colors=None, hsv_ranges=None):
         cx = m["m10"] / m["m00"] if m["m00"] else bx + bw / 2.0
         cy = m["m01"] / m["m00"] if m["m00"] else by + bh / 2.0
         detections.append(Detection(pkg_of_color(color), color, bbox,
-                                    (cx, cy), area, score, int(mask.sum())))
+                                    (cx, cy), area, score, int(mask.sum()), is_rear=is_rear))
     return detections
 
 

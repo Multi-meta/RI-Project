@@ -77,41 +77,19 @@ def _validate_pkg_estimate(px, py, pkg_id, grid, max_err=1.5):
 
 
 def _safe_approach_pose(px, py, rx, ry, approach_dist, grid):
-    """Compute a standoff point that is NOT inside an inflated obstacle.
+    """Compute standoff point for package pickup.
 
-    Starts with the standard standoff on the robot->package line and, if that
-    cell is occupied, rotates the approach angle in steps of 15 degrees (up to
-    +/-75 degrees) until a free cell is found.
+    The packages sit along the west wall (x = -3.1). Standoff is placed on
+    the open aisle (East, +x) side directly facing the package:
+    (px + approach_dist, py).
     """
+    if px < -2.5:
+        # Directly in front of the package on the open floor (facing west)
+        return px + approach_dist, py
+
     dx, dy = rx - px, ry - py
     norm = math.hypot(dx, dy) or 1.0
-    base_ax = px + dx / norm * approach_dist
-    base_ay = py + dy / norm * approach_dist
-
-    if grid is None:
-        return base_ax, base_ay
-
-    occ = grid.inflate(config.INFLATION_RADIUS)
-
-    def _free(ax, ay):
-        r, c = grid.world_to_cell(ax, ay)
-        return grid.in_bounds(r, c) and not occ[r, c]
-
-    if _free(base_ax, base_ay):
-        return base_ax, base_ay
-
-    # Try rotated approach angles +-15 ... +-75 degrees
-    angle0 = math.atan2(dy, dx)
-    for delta_deg in (15, 30, 45, 60, 75):
-        for sign in (1, -1):
-            ang = angle0 + sign * math.radians(delta_deg)
-            ax = px + approach_dist * math.cos(ang)
-            ay = py + approach_dist * math.sin(ang)
-            if _free(ax, ay):
-                return ax, ay
-
-    # Last resort: return base and let A* nearest_free snap it
-    return base_ax, base_ay
+    return px + dx / norm * approach_dist, py + dy / norm * approach_dist
 
 
 # ======================================================================= FSM =
@@ -208,9 +186,10 @@ class DecisionMaker:
 
                 self.pkg_pos = (px, py)
                 if self.grid is not None:
+                    # Map other non-target packages as obstacles, but NOT the target package
                     for pkg_id, (ox, oy) in self._pkg_seen.items():
-                        self.grid.add_obstacle_world(ox, oy, config.PKG_SIZE / 2)
-                    self.grid.add_obstacle_world(px, py, config.PKG_SIZE / 2)
+                        if pkg_id != config.TASK_PACKAGE:
+                            self.grid.add_obstacle_world(ox, oy, config.PKG_SIZE / 2)
                 others = {k: v for k, v in self._pkg_seen.items()
                           if k != config.TASK_PACKAGE}
                 if others:
@@ -224,6 +203,10 @@ class DecisionMaker:
                 self.scan_angle_accum = 0.0
                 self._set_state("NAVIGATE", sim_time)
                 return 0.0, 0.0
+
+        if target:
+            # 360 view: target already visible in front/rear camera! Do not rotate body
+            return 0.0, 0.0
 
         self.scan_angle_accum += abs(config.FIND_ROT_SPEED) * dt
         if self.scan_angle_accum > config.FIND_MAX_TURNS * 2.0 * math.pi:
@@ -260,24 +243,72 @@ class DecisionMaker:
                      f"{info.get('runtime_ms', 0):.1f} ms, "
                      f"{info.get('expansions', '?')} expansions")
 
+        rx, ry, _ = pose
+        ax, ay = self.approach_pose
+        dist_to_approach = math.hypot(rx - ax, ry - ay)
+
+        # Proximity arrival check for pickup
+        if dist_to_approach < 0.28:
+            self.follower = None
+            self._blocked_start_time = None
+            self.pick_deadline = sim_time + config.PICK_PAUSE_S
+            self._set_state("PICK", sim_time)
+            return 0.0, 0.0
+
         v, w = self.follower.update(pose, scan, angles)
         if self.follower.status == "REACHED":
             self.follower = None
+            self._blocked_start_time = None
             self.pick_deadline = sim_time + config.PICK_PAUSE_S
             self._set_state("PICK", sim_time)
         elif self.follower.status == "BLOCKED":
-            self.log(f"[t={sim_time:.1f}s] BLOCKED during NAVIGATE (LiDAR safety stop)")
             return self._handle_blocked(pose, scan, angles, self.approach_pose, sim_time)
+        else:
+            self._blocked_start_time = None
         return v, w
 
     def _handle_blocked(self, pose, scan, angles, goal, sim_time):
-        """Live dynamic replanning upon LiDAR safety stop."""
+        """Yield for moving obstacles; replan only if permanently blocked."""
         if self.grid is None:
             self.follower = None
             self._set_state("ERROR", sim_time)
             return 0.0, 0.0
 
-        # Find closest obstacle in forward cone
+        rx, ry, _ = pose
+        gx, gy = goal
+        dist_to_goal = math.hypot(rx - gx, ry - gy)
+
+        # If already at/very close to target goal, consider reached
+        if dist_to_goal < 0.35:
+            if self.follower:
+                self.follower.status = "REACHED"
+            self._blocked_start_time = None
+            return 0.0, 0.0
+
+        yield_time = getattr(config, "YIELD_WAIT_TIME", 1.5)
+
+        # Dynamic yield: wait up to YIELD_WAIT_TIME for moving obstacle to cross
+        if yield_time > 0.0:
+            if not hasattr(self, '_blocked_start_time') or self._blocked_start_time is None:
+                self._blocked_start_time = sim_time
+                self.log(f"[t={sim_time:.1f}s] Dynamic obstacle ahead — yielding to let it pass...")
+
+            elapsed = sim_time - self._blocked_start_time
+            if elapsed < yield_time:
+                from mapping import front_min_range
+                if scan is not None and angles is not None:
+                    front_d = front_min_range(scan, angles, config.FRONT_CONE)
+                    if front_d > (config.STOP_DIST + 0.12):
+                        self.log(f"[t={sim_time:.1f}s] Obstacle cleared path after {elapsed:.1f}s — resuming shortest path.")
+                        self._blocked_start_time = None
+                        if self.follower:
+                            self.follower.status = "FOLLOWING"
+                        return 0.0, 0.0
+                return 0.0, 0.0
+
+        # Obstacle remained static for > yield_time (or yield_time is 0) — replan detour
+        self._blocked_start_time = None
+
         d_min = float("inf")
         phi_min = 0.0
         if scan is not None and angles is not None:
@@ -293,30 +324,27 @@ class DecisionMaker:
         ox = pose[0] + d_min * math.cos(pose[2] + phi_min)
         oy = pose[1] + d_min * math.sin(pose[2] + phi_min)
 
-        wp_idx = self.follower.idx if self.follower else 0
-        self.log(f"[t={sim_time:.1f}s] OBSTACLE DETECTED at ({ox:.2f}, {oy:.2f}) distance {d_min:.2f} m")
-        self.log(f"[t={sim_time:.1f}s] Current path BLOCKED at waypoint {wp_idx}")
+        # Do not mark the goal itself as an obstacle
+        if math.hypot(ox - gx, oy - gy) < 0.40:
+            if self.follower:
+                self.follower.status = "REACHED"
+            return 0.0, 0.0
 
-        # Map obstacle on the dynamic grid layer
-        self.grid.add_obstacle_world(ox, oy, radius=0.15)
-        # Ensure robot's current cell is free so planner can start
+        self.log(f"[t={sim_time:.1f}s] OBSTACLE DETECTED at ({ox:.2f}, {oy:.2f}) distance {d_min:.2f} m")
+        self.grid.add_obstacle_world(ox, oy, radius=0.12)
         r_row, r_col = self.grid.world_to_cell(pose[0], pose[1])
         if self.grid.in_bounds(r_row, r_col):
             self.grid.dynamic[r_row, r_col] = False
 
-        # Trigger replanning
-        self.log(f"[t={sim_time:.1f}s] REPLANNING from ({pose[0]:.2f}, {pose[1]:.2f}) "
-                 f"to ({goal[0]:.2f}, {goal[1]:.2f})...")
+        self.log(f"[t={sim_time:.1f}s] REPLANNING from ({pose[0]:.2f}, {pose[1]:.2f}) to ({goal[0]:.2f}, {goal[1]:.2f})...")
         wps, info = self.planner((pose[0], pose[1]), goal)
         if wps is not None and len(wps) > 0:
             self.replans += 1
             self.path_length_total += info.get("length_m", 0.0)
             self.follower = WaypointFollower(wps)
             self.last_info = info
-            self.log(f"[t={sim_time:.1f}s] REPLAN SUCCESS: "
-                     f"{info.get('n_waypoints', '?')} waypoints, "
-                     f"length {info.get('length_m', 0):.2f} m, "
-                     f"took {info.get('runtime_ms', 0):.1f} ms")
+            self.log(f"[t={sim_time:.1f}s] REPLAN SUCCESS: {info.get('n_waypoints', '?')} waypoints, "
+                     f"length {info.get('length_m', 0):.2f} m, took {info.get('runtime_ms', 0):.1f} ms")
             return 0.0, 0.0
         else:
             self.log(f"[t={sim_time:.1f}s] REPLAN FAILED: no path found")
@@ -417,6 +445,12 @@ class DecisionMaker:
         if self._input_ready:
             self._awaiting_input = False
             self._input_ready = False
+            if getattr(self, "_should_end", False):
+                self._should_end = False
+                self.log(f"[t={sim_time:.1f}s] Operator requested End Simulation.")
+                self._set_state("DONE", sim_time)
+                self._emit_report(sim_time)
+                return 0.0, 0.0
             # Reset dynamic grid obstacles from the previous run so stale
             # package-obstacle marks don't block the new pickup route.
             if self.grid is not None:
@@ -498,16 +532,29 @@ class DecisionMaker:
                            fg=ZONE_HEX.get(z, "black"),
                            font=("Helvetica", 11)).pack(side="left", padx=8)
 
-        # --- submit ---
+        # --- action buttons: Start Mission vs End Simulation ---
+        btn_frame = tk.Frame(root)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=12)
+
         def on_submit():
+            result["action"] = "start"
             result["color"] = color_var.get()
             result["zone"]  = zone_var.get()
             root.destroy()
 
-        tk.Button(root, text="Start Mission", command=on_submit,
+        def on_end():
+            result["action"] = "end"
+            root.destroy()
+
+        tk.Button(btn_frame, text="Start Mission", command=on_submit,
                   bg="#2ecc71", fg="white",
                   font=("Helvetica", 11, "bold"),
-                  padx=12, pady=4).grid(row=3, column=0, columnspan=2, pady=12)
+                  padx=12, pady=4).pack(side="left", padx=10)
+
+        tk.Button(btn_frame, text="End Simulation", command=on_end,
+                  bg="#e74c3c", fg="white",
+                  font=("Helvetica", 11, "bold"),
+                  padx=12, pady=4).pack(side="left", padx=10)
 
         # Center the window on screen
         root.update_idletasks()
@@ -517,6 +564,14 @@ class DecisionMaker:
 
         root.mainloop()   # blocks until the window is closed
 
+        action = result.get("action", "start")
+        if action == "end":
+            self._should_end = True
+            self._input_ready = True
+            print("[ROBOT] Operator selected: End Simulation.", flush=True)
+            return
+
+        self._should_end = False
         color = result.get("color", valid_colors[0])
         zone  = result.get("zone",  valid_zones[0])
 
@@ -558,6 +613,13 @@ class DecisionMaker:
                             if ":" in line:
                                 k, v = line.split(":", 1)
                                 data[k.strip().lower()] = v.strip().lower()
+                    action = data.get("action", "").lower()
+                    if action in ("end", "quit", "stop"):
+                        os.remove(task_file)
+                        self._should_end = True
+                        self._input_ready = True
+                        print("[ROBOT] Task file requested End Simulation.", flush=True)
+                        return
                     color = data.get("color", "")
                     zone  = data.get("zone", "").upper()
                     if color in valid_colors and zone in valid_zones:

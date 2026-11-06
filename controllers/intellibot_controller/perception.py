@@ -45,11 +45,25 @@ class Perception:
         self.lidar_max = self.lidar.getMaxRange()
         self._ray_angles = self._compute_ray_angles()
 
-        # camera
+        # camera (front)
         self.camera = robot.getDevice(config.CAMERA_NAME)
         self.camera.enable(self.dt)
         self.cam_w = self.camera.getWidth()
         self.cam_h = self.camera.getHeight()
+
+        # rear camera (for 360 view)
+        self.rear_camera = None
+        try:
+            self.rear_camera = robot.getDevice(config.REAR_CAMERA_NAME)
+            if self.rear_camera is not None:
+                self.rear_camera.enable(self.dt)
+                self.rear_cam_w = self.rear_camera.getWidth()
+                self.rear_cam_h = self.rear_camera.getHeight()
+            else:
+                self.rear_cam_w, self.rear_cam_h = self.cam_w, self.cam_h
+        except Exception:
+            self.rear_camera = None
+            self.rear_cam_w, self.rear_cam_h = self.cam_w, self.cam_h
 
         # gps + imu
         self.gps = robot.getDevice(config.GPS_NAME)
@@ -108,15 +122,46 @@ class Perception:
         img = np.frombuffer(data, np.uint8).reshape(self.cam_h, self.cam_w, 4)
         return img[:, :, :3].copy()
 
+    def get_rear_frame(self):
+        """Rear camera BGR ndarray copy."""
+        if self.rear_camera is None:
+            return None
+        import numpy as np
+        data = self.rear_camera.getImage()
+        if data is None:
+            return None
+        img = np.frombuffer(data, np.uint8).reshape(self.rear_cam_h, self.rear_cam_w, 4)
+        return img[:, :, :3].copy()
+
     def get_detections(self, frame=None):
         if frame is None:
             frame = self.get_frame()
-        return detector_mod.detect_colors(frame)
+        dets = detector_mod.detect_colors(frame, is_rear=False)
+        if self.rear_camera is not None:
+            r_frame = self.get_rear_frame()
+            if r_frame is not None:
+                r_dets = detector_mod.detect_colors(r_frame, is_rear=True)
+                dets.extend(r_dets)
+        return dets
 
     def estimate_package_position(self, detection, pose, scan, angles):
+        is_rear = getattr(detection, "is_rear", False)
+        if is_rear and self.rear_camera is not None:
+            width = self.rear_cam_w
+            try:
+                hfov = self.rear_camera.getFov()
+            except Exception:
+                hfov = getattr(config, "REAR_CAMERA_FOV", config.CAMERA_FOV)
+        else:
+            width = self.cam_w
+            try:
+                hfov = self.camera.getFov()
+            except Exception:
+                hfov = config.CAMERA_FOV
+
         return estimation.estimate_package_position(
             detection, pose, scan, angles,
-            width=self.cam_w, hfov=self.camera.getFov())
+            width=width, hfov=hfov)
 
     # ---------------------------------------------------------------- motors
     def set_wheel_speeds(self, w_left, w_right):

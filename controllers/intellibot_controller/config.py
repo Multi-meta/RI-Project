@@ -174,9 +174,12 @@ LIDAR_ANGLE_OFFSET = 0.02                     # rad, from calibration
 # Camera
 CAMERA_WIDTH = 320
 CAMERA_HEIGHT = 240
-CAMERA_FOV = 1.0                              # horizontal FOV, rad
+CAMERA_FOV = 3.14159265                           # 90 deg wide-angle FOV (front camera)
+REAR_CAMERA_FOV = 3.14159265                      # 90 deg wide-angle FOV (rear camera)
+YIELD_WAIT_TIME = 8.0                         # s, pause for moving obstacle to pass
 CAMERA_MOUNT_X = 0.15
-CAMERA_MOUNT_Z = 0.12
+CAMERA_MOUNT_Z = 0.20
+REAR_CAMERA_NAME = "rear_camera"
 
 # Detector (OpenCV hue 0-180 scale). Kept out of the yellow(~30)/cyan(~90)
 # hue bands so zone patches can never be confused with packages.
@@ -185,8 +188,8 @@ HSV_RANGES = {
     "green": [((40, 80, 60), (80, 255, 255))],
     "blue":  [((105, 80, 60), (135, 255, 255))],
 }
-MIN_CONTOUR_AREA = 100.0                      # px^2 at 320x240 (P3 at ~4 m is ~14 px wide)
-ASPECT_MIN, ASPECT_MAX = 0.6, 1.6             # bbox aspect ratio window
+MIN_CONTOUR_AREA = 30.0                      # px^2 at 320x240 (P3 at ~4 m is ~14 px wide)
+ASPECT_MIN, ASPECT_MAX = 0.4, 2.5             # bbox aspect ratio window
 
 # Package position estimate
 PKG_BEARING_WINDOW = math.radians(3.0)        # lidar min-range window around bearing
@@ -194,7 +197,7 @@ PKG_BEARING_WINDOW = math.radians(3.0)        # lidar min-range window around be
 # ---------------------------------------------------------------- 8. FSM ---
 FIND_ROT_SPEED = 0.6                          # rad/s scan rotation
 FIND_MAX_TURNS = 2.0                          # full revolutions before timeout
-DETECTION_CONSEC = 5                          # consecutive frames to accept
+DETECTION_CONSEC = 2                          # consecutive frames to accept
 APPROACH_DISTANCE = 0.45                      # m, stand-off from package
 PICK_PAUSE_S = 1.0                            # s, stop duration in PICK
 
@@ -502,6 +505,11 @@ MOVING_OBSTACLE_SPEEDS = {
     'normal': 0.5,
     'fast': 0.8
 }
+FAST_SPHERE_DEF = "FAST_SPHERE"
+FAST_CART_DEF = "FAST_CART"
+FAST_SPHERE_SPEED = 0.75
+FAST_CART_SPEED = 0.70
+
 CART_DEFS = {
     'CART_1': {'lane': 'patrol_north', 'speed': 0.4, 'axis': 0},
     'CART_2': {'lane': 'cross_aisle_1', 'speed': 0.3, 'axis': 1},

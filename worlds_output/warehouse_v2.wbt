@@ -306,10 +306,20 @@ DEF ROBOT_1 Robot {
       maxRange 4.0
     }
     Camera {
-      translation 0.15 0 0.12
+      translation 0.16 0 0.16
       children [ Pose { translation -0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
       name "camera"
-      fieldOfView 1.0
+      fieldOfView 1.5708
+      width 320
+      height 240
+      recognition Recognition { frameColor 0.93 0.83 0 }
+    }
+    Camera {
+      translation -0.16 0 0.16
+      rotation 0 0 1 3.14159265
+      children [ Pose { translation 0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
+      name "rear_camera"
+      fieldOfView 1.5708
       width 320
       height 240
       recognition Recognition { frameColor 0.93 0.83 0 }
@@ -551,10 +561,20 @@ DEF ROBOT_2 Robot {
       maxRange 4.0
     }
     Camera {
-      translation 0.15 0 0.12
+      translation 0.16 0 0.16
       children [ Pose { translation -0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
       name "camera"
-      fieldOfView 1.0
+      fieldOfView 1.5708
+      width 320
+      height 240
+      recognition Recognition { frameColor 0.93 0.83 0 }
+    }
+    Camera {
+      translation -0.16 0 0.16
+      rotation 0 0 1 3.14159265
+      children [ Pose { translation 0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
+      name "rear_camera"
+      fieldOfView 1.5708
       width 320
       height 240
       recognition Recognition { frameColor 0.93 0.83 0 }

@@ -166,10 +166,20 @@ def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
       maxRange {config.LIDAR_MAX_RANGE}
     }}""",
         f"""    Camera {{
-      translation {config.CAMERA_MOUNT_X} 0 {config.CAMERA_MOUNT_Z}
+      translation {config.CAMERA_MOUNT_X + 0.01} 0 {config.CAMERA_MOUNT_Z + 0.04}
       children [ {cam_vis} ]
       name "{config.CAMERA_NAME}"
       fieldOfView {config.CAMERA_FOV}
+      width {config.CAMERA_WIDTH}
+      height {config.CAMERA_HEIGHT}
+      recognition Recognition {{ frameColor 0.93 0.83 0 }}
+    }}""",
+        f"""    Camera {{
+      translation {-config.CAMERA_MOUNT_X - 0.01} 0 {config.CAMERA_MOUNT_Z + 0.04}
+      rotation 0 0 1 3.14159265
+      children [ Pose {{ translation 0.01 0 0 children [ Shape {{ appearance {mat(COLORS['sensor'])} geometry Box {{ size 0.02 0.04 0.03 }} }} ] }} ]
+      name "{config.REAR_CAMERA_NAME}"
+      fieldOfView {getattr(config, 'REAR_CAMERA_FOV', config.CAMERA_FOV)}
       width {config.CAMERA_WIDTH}
       height {config.CAMERA_HEIGHT}
       recognition Recognition {{ frameColor 0.93 0.83 0 }}
@@ -462,6 +472,17 @@ def build_world(controller):
                    COLORS["cart_1"], physics="Physics { density -1 mass 4.0 }"))
     w.append(solid("CART_2", "0.8 -2.4 0.15", "0.4 0.4 0.3",
                    COLORS["cart_2"], physics="Physics { density -1 mass 4.0 }"))
+    # Fast moving obstacles (one sphere, one cart) between source and destination
+    w.append(f'DEF FAST_SPHERE Solid {{\n'
+             f'  translation -1.5 -1.2 0.22\n'
+             f'  children [ Shape {{ appearance {mat(COLORS["ball"])} '
+             f'geometry Sphere {{ radius 0.22 subdivision 4 }} }} ]\n'
+             f'  name "fast_sphere"\n'
+             f'  boundingObject Sphere {{ radius 0.22 subdivision 4 }}\n'
+             f'  physics Physics {{ density -1 mass 3.0 }}\n'
+             f'}}\n')
+    w.append(solid("FAST_CART", "1.6 1.2 0.15", "0.4 0.35 0.3",
+                   COLORS["crate"], physics="Physics { density -1 mass 4.0 }"))
 
     w.append(build_robot(controller))
     w.append("")

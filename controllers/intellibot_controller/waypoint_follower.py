@@ -72,21 +72,13 @@ class WaypointFollower:
         if self.status == "REACHED":
             return 0.0, 0.0
 
-        # --- LiDAR safety stop (hook for final-eval replanning) -----------
-        if scan is not None and angles is not None:
-            front = front_min_range(scan, angles, self.front_cone)
-            if front < self.stop_dist:
-                self.status = "BLOCKED"
-                return 0.0, 0.0
-
         wp_x, wp_y = self.waypoints[self.idx]
         dx, dy = wp_x - x, wp_y - y
         dist = math.hypot(dx, dy)
 
-        heading_err = wrap_to_pi(math.atan2(dy, dx) - theta)
-        self.last_heading_err = heading_err
-
-        tol = self.goal_tol if self.idx == len(self.waypoints) - 1 else self.wp_tol
+        # Check waypoint arrival
+        is_final_wp = (self.idx == len(self.waypoints) - 1)
+        tol = self.goal_tol if is_final_wp else self.wp_tol
         if dist < tol:
             self.idx += 1
             if self.idx >= len(self.waypoints):
@@ -95,8 +87,46 @@ class WaypointFollower:
             wp_x, wp_y = self.waypoints[self.idx]
             dx, dy = wp_x - x, wp_y - y
             dist = math.hypot(dx, dy)
-            heading_err = wrap_to_pi(math.atan2(dy, dx) - theta)
-            self.last_heading_err = heading_err
+            is_final_wp = (self.idx == len(self.waypoints) - 1)
+
+        # --- Symmetrical bidirectional steering ---
+        # The robot has front + rear cameras and symmetrical wheels.
+        # Choose forward vs reverse based on which heading error is smaller.
+        target_angle = math.atan2(dy, dx)
+        err_fwd = wrap_to_pi(target_angle - theta)
+        err_rev = wrap_to_pi(target_angle - wrap_to_pi(theta + math.pi))
+
+        if abs(err_fwd) <= abs(err_rev):
+            heading_err = err_fwd
+            reverse = False
+        else:
+            heading_err = err_rev
+            reverse = True
+
+        self.last_heading_err = heading_err
+
+        # --- Directional LiDAR safety stop ---
+        if scan is not None and angles is not None:
+            # If on final approach to package/destination and within proximity,
+            # don't trigger safety stop against the target object itself
+            if is_final_wp and dist < (self.stop_dist + 0.15):
+                # Arrived close enough to target
+                self.status = "REACHED"
+                return 0.0, 0.0
+
+            from mapping import obstacle_in_sector
+            if not reverse:
+                # Moving forward: check front cone
+                front = front_min_range(scan, angles, self.front_cone)
+                if front < self.stop_dist:
+                    self.status = "BLOCKED"
+                    return 0.0, 0.0
+            else:
+                # Moving backward: check rear cone
+                rear = obstacle_in_sector(scan, angles, math.pi - self.front_cone, -math.pi + self.front_cone)
+                if rear < self.stop_dist:
+                    self.status = "BLOCKED"
+                    return 0.0, 0.0
 
         # cross-track error: perpendicular distance to the current segment
         self.cross_track_err = self._crosstrack(x, y)
@@ -105,10 +135,11 @@ class WaypointFollower:
         w = max(-self.w_max, min(self.w_max, w))
 
         if abs(heading_err) > self.turn_thresh:
-            v = 0.0                                   # rotate first
+            v = 0.0                                   # rotate slightly first if angle > threshold
         else:
-            v = self.v_max * max(0.0, math.cos(heading_err)) \
-                * min(1.0, dist / self.slow)
+            speed = self.v_max * max(0.0, math.cos(heading_err)) * min(1.0, dist / self.slow)
+            v = -speed if reverse else speed
+
         return v, w
 
     def _crosstrack(self, x, y):

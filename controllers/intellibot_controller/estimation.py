@@ -6,7 +6,7 @@ project_summary.md §10.8:
     pixel column u -> bearing phi (robot frame) -> range d (LiDAR at that
     bearing) -> world position via pose + polar transform.
 
-Fallback range (no LiDAR return on the package): pinhole model
+Fallback range (no LiDAR return on the package): pinhole or spherical model
     d = f_px * PKG_SIZE / bbox_width_px
 """
 
@@ -17,16 +17,23 @@ import config
 
 def focal_px(width, hfov):
     """Horizontal focal length in pixels for a pinhole camera."""
-    return (width / 2.0) / math.tan(hfov / 2.0)
+    hfov_c = min(float(hfov), math.pi - 1e-3)
+    return (width / 2.0) / math.tan(hfov_c / 2.0)
 
 
-def bearing_from_detection(centroid_u, width, hfov):
-    """Image column (px) -> bearing in the robot frame (rad, left = +).
+def bearing_from_detection(centroid_u, width, hfov, is_rear=False):
+    """Image column (px) -> bearing in the robot frame (rad, left = positive)."""
+    from mapping import wrap_angle
+    if hfov >= 2.0:
+        angle_offset = (centroid_u - width / 2.0) * (hfov / width)
+        if is_rear:
+            return wrap_angle(math.pi - angle_offset)
+        return wrap_angle(-angle_offset)
 
-    Image x grows to the RIGHT, robot-frame bearings grow to the LEFT,
-    hence the minus sign.
-    """
     f = focal_px(width, hfov)
+    if is_rear:
+        phi_rear = math.atan2(centroid_u - width / 2.0, f)
+        return wrap_angle(math.pi - phi_rear)
     return -math.atan2(centroid_u - width / 2.0, f)
 
 
@@ -39,11 +46,14 @@ def range_at_bearing(scan, angles, phi, window=None):
 
 
 def fallback_range(bbox_w_px, width, hfov, pkg_size=None):
-    """Pinhole depth estimate from the bbox width in pixels."""
+    """Depth estimate from the bbox width in pixels."""
     if pkg_size is None:
         pkg_size = config.PKG_SIZE
     if bbox_w_px <= 0:
         return math.inf
+    if hfov >= 2.0:
+        ang_w = max(1e-4, bbox_w_px * (hfov / width))
+        return pkg_size / ang_w
     return focal_px(width, hfov) * pkg_size / bbox_w_px
 
 
@@ -52,14 +62,15 @@ def estimate_package_position(detection, pose, scan=None, angles=None,
     """Detection + robot pose (+ LiDAR) -> (x, y) world position estimate.
 
     pose: (x, y, theta). Uses the LiDAR range at the detection's bearing when
-    available, otherwise the pinhole fallback.
+    available, otherwise the fallback model.
     """
     if width is None:
         width = config.CAMERA_WIDTH
     if hfov is None:
         hfov = config.CAMERA_FOV
     x, y, theta = pose
-    phi = bearing_from_detection(detection.centroid[0], width, hfov)
+    is_rear = getattr(detection, "is_rear", False)
+    phi = bearing_from_detection(detection.centroid[0], width, hfov, is_rear=is_rear)
     d = math.inf
     if scan is not None and angles is not None:
         d = range_at_bearing(scan, angles, phi)

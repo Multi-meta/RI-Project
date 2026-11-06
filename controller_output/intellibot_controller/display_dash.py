@@ -11,7 +11,7 @@ low rate (~2 Hz) from the main loop to keep control timing clean.
 
 import math
 
-import controller_output.intellibot_controller.config as config
+import config
 
 # display palette (0xRRGGBB for Webots Display.setColor)
 COL_BG = 0xF4F5F7
@@ -37,7 +37,6 @@ class Dashboard:
         self.cell = min(self.w / self.cols, self.h / self.rows)
         self.ox = (self.w - self.cols * self.cell) / 2.0
         self.oy = (self.h - self.rows * self.cell) / 2.0
-        self._last_state = None
 
     # ------------------------------------------------------------- helpers
     def _cell_rect(self, row, col):

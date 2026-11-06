@@ -12,7 +12,7 @@ import math
 
 import numpy as np
 
-from controller_output.intellibot_controller.mapping import bresenham
+from mapping import bresenham
 
 
 def line_of_sight(grid, a, b):
@@ -86,7 +86,7 @@ def plan_to(grid, start_xy, goal_xy, resample_spacing=0.3,
     combined occupancy inflated by that radius. info carries A* stats and the
     final path length.
     """
-    from controller_output.intellibot_controller.a_star import a_star  # local import keeps module import graph flat
+    from a_star import a_star  # local import keeps module import graph flat
 
     if inflation_radius:
         occupancy = grid.inflate(inflation_radius)

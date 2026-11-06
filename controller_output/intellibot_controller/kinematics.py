@@ -16,7 +16,7 @@ Odometry (arc model, per step, dphi from encoder deltas):
 
 import math
 
-import controller_output.intellibot_controller.config as config
+import config
 
 
 def wrap_to_pi(a):

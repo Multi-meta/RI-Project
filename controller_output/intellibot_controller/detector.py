@@ -12,7 +12,7 @@ factor), NOT a statistical confidence. Say "heuristic score" on slides.
 import cv2
 import numpy as np
 
-import controller_output.intellibot_controller.config as config
+import config
 
 
 class Detection:

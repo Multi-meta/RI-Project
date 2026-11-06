@@ -14,10 +14,10 @@ Webots conventions verified against docs/webots_findings.md:
 
 import math
 
-import controller_output.intellibot_controller.config as config
-import controller_output.intellibot_controller.detector as detector_mod
-import controller_output.intellibot_controller.estimation as estimation
-from controller_output.intellibot_controller.kinematics import Odometry
+import config
+import detector as detector_mod
+import estimation
+from kinematics import Odometry
 
 
 class Perception:
@@ -78,8 +78,11 @@ class Perception:
     def get_pose(self):
         """Operating pose estimate (GPS + IMU): (x, y, theta)."""
         p = self.gps.getValues()
-        yaw = self.imu.getRollPitchYaw()[2]
-        return p[0], p[1], yaw
+        rpy = self.imu.getRollPitchYaw()
+        x = p[0] if (p is not None and len(p) >= 1 and math.isfinite(p[0])) else config.ROBOT_START[0]
+        y = p[1] if (p is not None and len(p) >= 2 and math.isfinite(p[1])) else config.ROBOT_START[1]
+        yaw = rpy[2] if (rpy is not None and len(rpy) >= 3 and math.isfinite(rpy[2])) else config.ROBOT_START[2]
+        return x, y, yaw
 
     def get_odometry(self):
         """Update + return wheel odometry pose (validated against GPS)."""

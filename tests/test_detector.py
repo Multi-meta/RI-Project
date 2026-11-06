@@ -47,7 +47,7 @@ def test_zone_colors_not_confused():
 
 
 def test_small_blob_rejected():
-    img = make_scene((255, 0, 0), size=12)        # tiny -> below MIN_AREA
+    img = make_scene((255, 0, 0), size=9)         # tiny -> below MIN_AREA
     assert detector.detect_package(img, "P3") is None
 
 

@@ -13,7 +13,7 @@
 | P0 | OK | `docs/evidence/planned_vs_actual.png` | planned vs actual overlay |
 | P0 | OK | `docs/evidence/lidar_scan.png` | LiDAR scan world-frame plot |
 | P0 | OK | `docs/evidence/metrics.md` | metrics summary |
-| P1 | MISSING | `docs/evidence/runs_summary.md` | repeatability campaign summary |
+| P1 | OK | `docs/evidence/runs_summary.md` | repeatability campaign summary |
 | P0 | MISSING | `docs/evidence/run_full.mp4` | <=60 s screen recording of a full run |
 | P0 | OK | `logs/run.csv` | final console run log (CSV) |
 | P0 | OK | `README.md` | run instructions |

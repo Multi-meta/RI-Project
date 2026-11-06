@@ -8,7 +8,7 @@ Run log columns (project_summary.md §13):
 import csv
 import os
 
-import controller_output.intellibot_controller.config as config
+import config
 
 COLUMNS = ["t", "x", "y", "theta", "x_odom", "y_odom", "theta_odom",
            "v_cmd", "w_cmd", "wl", "wr", "state", "wp_idx",

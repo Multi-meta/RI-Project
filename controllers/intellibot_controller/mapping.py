@@ -70,6 +70,8 @@ class OccupancyGrid:
 
     def add_obstacle_world(self, x, y, radius):
         """Mark a circular dynamic obstacle (final-eval hook)."""
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return
         rr = int(math.ceil(radius / self.res))
         row, col = self.world_to_cell(x, y)
         for dr in range(-rr, rr + 1):

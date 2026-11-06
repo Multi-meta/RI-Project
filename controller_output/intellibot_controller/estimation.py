@@ -12,7 +12,7 @@ Fallback range (no LiDAR return on the package): pinhole model
 
 import math
 
-import controller_output.intellibot_controller.config as config
+import config
 
 
 def focal_px(width, hfov):
@@ -34,7 +34,7 @@ def range_at_bearing(scan, angles, phi, window=None):
     """LiDAR range at bearing phi: min over +-window. inf if no valid ray."""
     if window is None:
         window = config.PKG_BEARING_WINDOW
-    from controller_output.intellibot_controller.mapping import obstacle_in_sector
+    from mapping import obstacle_in_sector
     return obstacle_in_sector(scan, angles, phi - window, phi + window)
 
 

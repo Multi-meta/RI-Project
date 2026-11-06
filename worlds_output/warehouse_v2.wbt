@@ -1,0 +1,801 @@
+#VRML_SIM R2025a utf8
+WorldInfo {
+  basicTimeStep 16
+  contactProperties [
+    ContactProperties {
+      material1 "caster"
+      material2 "floor"
+      coulombFriction [ 0 ]
+    }
+    ContactProperties {
+      material1 "box"
+      material2 "box"
+      coulombFriction [ 1.2 ]
+    }
+    ContactProperties {
+      material1 "box"
+      material2 "floor"
+      coulombFriction [ 0.8 ]
+    }
+    ContactProperties {
+      material1 "gripper"
+      material2 "box"
+      coulombFriction [ 1.5 ]
+    }
+  ]
+  coordinateSystem "NUE"
+}
+Viewpoint {
+  orientation 1 0 0 0.85
+  position 0 -11 12
+}
+DEF LIGHT_1 PointLight {
+  attenuation 0 0 1
+  color 1 1 0.95
+  intensity 1.5
+  location -4.0 0 3.5
+  castShadows TRUE
+}
+DEF LIGHT_2 PointLight {
+  attenuation 0 0 1
+  color 1 1 0.95
+  intensity 1.5
+  location 0.0 0 3.5
+  castShadows TRUE
+}
+DEF LIGHT_3 PointLight {
+  attenuation 0 0 1
+  color 1 1 0.95
+  intensity 1.5
+  location 4.0 0 3.5
+  castShadows TRUE
+}
+Solid {
+  translation 0 0 -0.01
+  children [ Shape { appearance Appearance { material Material { diffuseColor 0.55 0.53 0.50 } } geometry Box { size 12.0 8.0 0.02 } } ]
+  name "floor"
+  boundingObject Box { size 12.0 8.0 0.02 }
+  contactMaterial "floor"
+}
+Solid { translation 0 4.05 0.75 children [ Shape { appearance Appearance { material Material { diffuseColor 0.75 0.75 0.75 } } geometry Box { size 12.2 0.1 1.5 } } ] name "wall_north" boundingObject Box { size 12.2 0.1 1.5 } }
+Solid { translation 0 -4.05 0.75 children [ Shape { appearance Appearance { material Material { diffuseColor 0.75 0.75 0.75 } } geometry Box { size 12.2 0.1 1.5 } } ] name "wall_south" boundingObject Box { size 12.2 0.1 1.5 } }
+Solid { translation 6.05 0 0.75 children [ Shape { appearance Appearance { material Material { diffuseColor 0.75 0.75 0.75 } } geometry Box { size 0.1 8.2 1.5 } } ] name "wall_east" boundingObject Box { size 0.1 8.2 1.5 } }
+Solid { translation -6.05 0 0.75 children [ Shape { appearance Appearance { material Material { diffuseColor 0.75 0.75 0.75 } } geometry Box { size 0.1 8.2 1.5 } } ] name "wall_west" boundingObject Box { size 0.1 8.2 1.5 } }
+Solid { translation 4.8 2.0 0.001 children [ Shape { appearance Appearance { material Material { diffuseColor 0.95 0.9 0.1 } } geometry Box { size 1.2 1.2 0.002 } } ] name "zone_a" }
+Solid { translation 4.8 -2.0 0.001 children [ Shape { appearance Appearance { material Material { diffuseColor 0.1 0.85 0.9 } } geometry Box { size 1.2 1.2 0.002 } } ] name "zone_b" }
+Solid { translation -4.8 2.5 0.001 children [ Shape { appearance Appearance { material Material { diffuseColor 0.35 0.50 0.70 } } geometry Box { size 0.8 0.8 0.002 } } ] name "dock_1" }
+Solid { translation -4.8 -2.5 0.001 children [ Shape { appearance Appearance { material Material { diffuseColor 0.35 0.50 0.70 } } geometry Box { size 0.8 0.8 0.002 } } ] name "dock_2" }
+Solid { translation -4.8 -1.0 0.001 children [ Shape { appearance Appearance { material Material { diffuseColor 0.35 0.50 0.70 } } geometry Box { size 0.8 0.8 0.002 } } ] name "dock_3" }
+Solid { translation -4.5 0.0 0.025 children [ Shape { appearance Appearance { material Material { diffuseColor 0.85 0.80 0.70 } } geometry Box { size 1.4 1.0 0.05 } } ] name "pallet" boundingObject Box { size 1.4 1.0 0.05 } contactMaterial "floor" }
+Solid { translation -5.0 3.2 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.95 0.95 0.95 } } geometry Cylinder { height 1.2 radius 0.05 } } ] name "landmark_1" boundingObject Cylinder { height 1.2 radius 0.05 } }
+Solid { translation 0.0 3.2 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.95 0.95 0.95 } } geometry Cylinder { height 1.2 radius 0.05 } } ] name "landmark_2" boundingObject Cylinder { height 1.2 radius 0.05 } }
+Solid { translation 5.0 3.2 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.95 0.95 0.95 } } geometry Cylinder { height 1.2 radius 0.05 } } ] name "landmark_3" boundingObject Cylinder { height 1.2 radius 0.05 } }
+Solid { translation -5.0 -3.2 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.95 0.95 0.95 } } geometry Cylinder { height 1.2 radius 0.05 } } ] name "landmark_4" boundingObject Cylinder { height 1.2 radius 0.05 } }
+Solid { translation 0.0 -3.2 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.95 0.95 0.95 } } geometry Cylinder { height 1.2 radius 0.05 } } ] name "landmark_5" boundingObject Cylinder { height 1.2 radius 0.05 } }
+Solid { translation 5.0 -3.2 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.95 0.95 0.95 } } geometry Cylinder { height 1.2 radius 0.05 } } ] name "landmark_6" boundingObject Cylinder { height 1.2 radius 0.05 } }
+Solid { translation -1.5 2.4 0.15 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH1_L1" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation -1.5 2.4 0.55 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH1_L2" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation -1.5 2.4 0.95 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH1_L3" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation -1.5 2.6799999999999997 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.25 0.27 0.32 } } geometry Box { size 2.4 0.04 1.2 } } ] name "SH1_back" boundingObject Box { size 2.4 0.04 1.2 } }
+Solid { translation 2.5 2.4 0.15 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH2_L1" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation 2.5 2.4 0.55 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH2_L2" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation 2.5 2.4 0.95 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH2_L3" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation 2.5 2.6799999999999997 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.25 0.27 0.32 } } geometry Box { size 2.4 0.04 1.2 } } ] name "SH2_back" boundingObject Box { size 2.4 0.04 1.2 } }
+Solid { translation -1.5 -2.4 0.15 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH3_L1" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation -1.5 -2.4 0.55 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH3_L2" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation -1.5 -2.4 0.95 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH3_L3" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation -1.5 -2.6799999999999997 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.25 0.27 0.32 } } geometry Box { size 2.4 0.04 1.2 } } ] name "SH3_back" boundingObject Box { size 2.4 0.04 1.2 } }
+Solid { translation 2.5 -2.4 0.15 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH4_L1" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation 2.5 -2.4 0.55 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH4_L2" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation 2.5 -2.4 0.95 children [ Shape { appearance Appearance { material Material { diffuseColor 0.22 0.24 0.28 } } geometry Box { size 2.4 0.6 0.04 } } ] name "SH4_L3" boundingObject Box { size 2.4 0.6 0.04 } }
+Solid { translation 2.5 -2.6799999999999997 0.6 children [ Shape { appearance Appearance { material Material { diffuseColor 0.25 0.27 0.32 } } geometry Box { size 2.4 0.04 1.2 } } ] name "SH4_back" boundingObject Box { size 2.4 0.04 1.2 } }
+DEF PKG_1 Solid {
+  translation -4.75 -0.25 0.16
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.9 0.1 0.1 }
+        texture ImageTexture { url [ "textures/aruco/marker_1.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_1"
+  model "PKG_1"
+  recognitionColors [ 0.9 0.1 0.1 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_2 Solid {
+  translation -4.50 -0.25 0.16
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.1 0.8 0.1 }
+        texture ImageTexture { url [ "textures/aruco/marker_2.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_2"
+  model "PKG_2"
+  recognitionColors [ 0.1 0.8 0.1 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_3 Solid {
+  translation -4.25 -0.25 0.16
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.1 0.2 0.9 }
+        texture ImageTexture { url [ "textures/aruco/marker_3.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_3"
+  model "PKG_3"
+  recognitionColors [ 0.1 0.2 0.9 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_4 Solid {
+  translation -4.75 0.25 0.16
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.9 0.1 0.1 }
+        texture ImageTexture { url [ "textures/aruco/marker_4.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_4"
+  model "PKG_4"
+  recognitionColors [ 0.9 0.1 0.1 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_5 Solid {
+  translation -4.50 0.25 0.16
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.1 0.8 0.1 }
+        texture ImageTexture { url [ "textures/aruco/marker_5.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_5"
+  model "PKG_5"
+  recognitionColors [ 0.1 0.8 0.1 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_6 Solid {
+  translation -4.25 0.25 0.16
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.1 0.2 0.9 }
+        texture ImageTexture { url [ "textures/aruco/marker_6.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_6"
+  model "PKG_6"
+  recognitionColors [ 0.1 0.2 0.9 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_7 Solid {
+  translation -4.62 -0.12 0.38
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.9 0.1 0.1 }
+        texture ImageTexture { url [ "textures/aruco/marker_7.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_7"
+  model "PKG_7"
+  recognitionColors [ 0.9 0.1 0.1 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_8 Solid {
+  translation -4.38 -0.12 0.38
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.1 0.8 0.1 }
+        texture ImageTexture { url [ "textures/aruco/marker_8.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_8"
+  model "PKG_8"
+  recognitionColors [ 0.1 0.8 0.1 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_9 Solid {
+  translation -4.62 0.12 0.38
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.1 0.2 0.9 }
+        texture ImageTexture { url [ "textures/aruco/marker_9.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_9"
+  model "PKG_9"
+  recognitionColors [ 0.1 0.2 0.9 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF PKG_10 Solid {
+  translation -4.38 0.12 0.38
+  children [
+    Shape {
+      appearance Appearance {
+        material Material { diffuseColor 0.9 0.1 0.1 }
+        texture ImageTexture { url [ "textures/aruco/marker_10.png" ] }
+      }
+      geometry Box { size 0.22 0.22 0.22 }
+    }
+  ]
+  name "pkg_10"
+  model "PKG_10"
+  recognitionColors [ 0.9 0.1 0.1 ]
+  boundingObject Box { size 0.22 0.22 0.22 }
+  physics Physics { density -1 mass 0.4 }
+  contactMaterial "box"
+}
+DEF CART_1 Solid {
+  translation -4.0 3.2 0.2
+  children [
+    Shape { appearance Appearance { material Material { diffuseColor 0.95 0.85 0.1 } } geometry Box { size 0.5 0.4 0.35 } }
+  ]
+  name "cart_1"
+  boundingObject Box { size 0.5 0.4 0.35 }
+  physics Physics { density -1 mass 5.0 }
+}
+
+DEF CART_2 Solid {
+  translation 0.5 -3.2 0.2
+  children [
+    Shape { appearance Appearance { material Material { diffuseColor 0.9 0.45 0.1 } } geometry Box { size 0.45 0.45 0.35 } }
+  ]
+  name "cart_2"
+  boundingObject Box { size 0.45 0.45 0.35 }
+  physics Physics { density -1 mass 5.0 }
+}
+
+DEF ROBOT_1 Robot {
+  translation -4.8 2.5 0.0
+  rotation 0 0 1 0.0
+  controllerArgs [ "R1" ]
+  children [
+    Pose { translation 0 0 0.12 children [ Shape { appearance Appearance { material Material { diffuseColor 0.1 0.2 0.5 } } geometry Box { size 0.55 0.4 0.18 } } ] }
+    Lidar {
+      translation 0 0 0.14
+      name "lidar"
+      horizontalResolution 360
+      fieldOfView 6.283185
+      numberOfLayers 1
+      verticalFieldOfView 0.1
+      minRange 0.05
+      maxRange 4.0
+    }
+    Camera {
+      translation 0.15 0 0.12
+      children [ Pose { translation -0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
+      name "camera"
+      fieldOfView 1.0
+      width 320
+      height 240
+      recognition Recognition { frameColor 0.93 0.83 0 }
+    }
+    GPS { name "gps" }
+    InertialUnit { name "imu" }
+    LED { name "status_led" }
+    Pen {
+      translation 0 0 0.001
+      name "pen"
+      leadSize 0.01
+      inkColor 1 0.42 0.05
+      inkDensity 1
+    }
+    Display {
+      translation 0 0 0.16
+      name "dashboard"
+      width 320
+      height 240
+    }
+    TouchSensor {
+      translation 0.28500000000000003 0 0.12
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.15 0.15 0.15 } } geometry Box { size 0.02 0.36000000000000004 0.108 } } ]
+      name "bumper_f"
+      boundingObject Box { size 0.02 0.36000000000000004 0.108 }
+      physics Physics { density -1 mass 0.02 }
+      type "bumper"
+    }
+    TouchSensor {
+      translation -0.28500000000000003 0 0.12
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.15 0.15 0.15 } } geometry Box { size 0.02 0.36000000000000004 0.108 } } ]
+      name "bumper_r"
+      boundingObject Box { size 0.02 0.36000000000000004 0.108 }
+      physics Physics { density -1 mass 0.02 }
+      type "bumper"
+    }
+    Emitter { name "emitter" channel 1 }
+    Receiver { name "receiver" channel 1 }
+    Solid {
+      translation 0.23500000000000001 0 0.03
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.3 0.3 0.3 } }
+        geometry Sphere { radius 0.03 subdivision 2 } } ]
+      name "robot_1_caster_f"
+      contactMaterial "caster"
+      boundingObject Sphere { radius 0.03 subdivision 2 }
+      physics Physics { density -1 mass 0.02 }
+    }
+    Solid {
+      translation -0.23500000000000001 0 0.03
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.3 0.3 0.3 } }
+        geometry Sphere { radius 0.03 subdivision 2 } } ]
+      name "robot_1_caster_r"
+      contactMaterial "caster"
+      boundingObject Sphere { radius 0.03 subdivision 2 }
+      physics Physics { density -1 mass 0.02 }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 0.165 0.04
+      }
+      device [
+        RotationalMotor { name "left_motor" maxVelocity 12.0 maxTorque 5.0 }
+        PositionSensor { name "left_encoder" }
+      ]
+      endPoint Solid {
+        translation 0 0.165 0.04
+        children [ Pose { rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.1 0.1 0.1 } } geometry Cylinder { height 0.04 radius 0.04 subdivision 24 } } ] } ]
+        name "left_wheel"
+        boundingObject Sphere { radius 0.04 subdivision 3 }
+        physics Physics { density -1 mass 0.1 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 -0.165 0.04
+      }
+      device [
+        RotationalMotor { name "right_motor" maxVelocity 12.0 maxTorque 5.0 }
+        PositionSensor { name "right_encoder" }
+      ]
+      endPoint Solid {
+        translation 0 -0.165 0.04
+        children [ Pose { rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.1 0.1 0.1 } } geometry Cylinder { height 0.04 radius 0.04 subdivision 24 } } ] } ]
+        name "right_wheel"
+        boundingObject Sphere { radius 0.04 subdivision 3 }
+        physics Physics { density -1 mass 0.1 }
+      }
+    }
+    LinearJoint {
+      jointParameters JointParameters {
+        axis 0 0 1
+        minStop 0.0
+        maxStop 0.70
+      }
+      device [
+        LinearMotor { name "lift_motor" maxVelocity 0.15 maxForce 200 }
+        PositionSensor { name "lift_sensor" }
+      ]
+      endPoint Solid {
+        translation 0.10 0 0.24
+        children [
+          Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.12 0.12 0.08 } }
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis 0 0 1
+              minStop -2.618
+              maxStop 2.618
+            }
+            device [
+              RotationalMotor { name "arm_motor_1" maxVelocity 1.5 maxTorque 30 }
+              PositionSensor { name "arm_sensor_1" }
+            ]
+            endPoint Solid {
+              translation 0.175 0 0.04
+              children [
+                Pose { translation 0 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.35 0.06 0.04 } } ] }
+                HingeJoint {
+                  jointParameters HingeJointParameters {
+                    axis 0 0 1
+                    anchor 0.175 0 0
+                    minStop -2.792
+                    maxStop 2.792
+                  }
+                  device [
+                    RotationalMotor { name "arm_motor_2" maxVelocity 1.5 maxTorque 30 }
+                    PositionSensor { name "arm_sensor_2" }
+                  ]
+                  endPoint Solid {
+                    translation 0.175 0 0
+                    children [
+                      Pose { translation 0.15 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.30 0.05 0.04 } } ] }
+                      HingeJoint {
+                        jointParameters HingeJointParameters {
+                          axis 0 0 1
+                          anchor 0.30 0 0
+                          minStop -1.5708
+                          maxStop 1.5708
+                        }
+                        device [
+                          RotationalMotor { name "wrist_motor" maxVelocity 2.0 maxTorque 10 }
+                          PositionSensor { name "wrist_sensor" }
+                        ]
+                        endPoint Solid {
+                          translation 0.30 0 0
+                          children [
+                            Shape { appearance Appearance { material Material { diffuseColor 0.25 0.25 0.25 } } geometry Box { size 0.06 0.14 0.05 } }
+                            DistanceSensor {
+                              translation 0.03 0 0
+                              name "palm_ir"
+                              lookupTable [ 0 1024 0, 0.25 0 0 ]
+                              type "infra-red"
+                            }
+                            LinearJoint {
+                              jointParameters JointParameters { axis 0 1 0 minStop 0.0 maxStop 0.13 }
+                              device [
+                                LinearMotor { name "finger_motor_1" maxVelocity 0.1 maxForce 15 }
+                                PositionSensor { name "finger_sensor_1" }
+                              ]
+                              endPoint Solid {
+                                translation 0.06 0.05 0
+                                children [
+                                  Shape { appearance Appearance { material Material { diffuseColor 0.85 0.1 0.1 } } geometry Box { size 0.08 0.02 0.04 } }
+                                  TouchSensor {
+                                    name "finger_touch_1"
+                                    type "force"
+                                    boundingObject Box { size 0.08 0.02 0.04 }
+                                    physics Physics { density -1 mass 0.05 }
+                                  }
+                                ]
+                                boundingObject Box { size 0.08 0.02 0.04 }
+                                physics Physics { density -1 mass 0.05 }
+                              }
+                            }
+                            LinearJoint {
+                              jointParameters JointParameters { axis 0 -1 0 minStop 0.0 maxStop 0.13 }
+                              device [
+                                LinearMotor { name "finger_motor_2" maxVelocity 0.1 maxForce 15 }
+                                PositionSensor { name "finger_sensor_2" }
+                              ]
+                              endPoint Solid {
+                                translation 0.06 -0.05 0
+                                children [
+                                  Shape { appearance Appearance { material Material { diffuseColor 0.85 0.1 0.1 } } geometry Box { size 0.08 0.02 0.04 } }
+                                  TouchSensor {
+                                    name "finger_touch_2"
+                                    type "force"
+                                    boundingObject Box { size 0.08 0.02 0.04 }
+                                    physics Physics { density -1 mass 0.05 }
+                                  }
+                                ]
+                                boundingObject Box { size 0.08 0.02 0.04 }
+                                physics Physics { density -1 mass 0.05 }
+                              }
+                            }
+                          ]
+                          boundingObject Box { size 0.06 0.14 0.05 }
+                          physics Physics { density -1 mass 0.2 }
+                        }
+                      }
+                    ]
+                    boundingObject Pose { translation 0.15 0 0 children [ Box { size 0.30 0.05 0.04 } ] }
+                    physics Physics { density -1 mass 0.4 }
+                  }
+                }
+              ]
+              boundingObject Box { size 0.35 0.06 0.04 }
+              physics Physics { density -1 mass 0.5 }
+            }
+          }
+        ]
+        boundingObject Box { size 0.12 0.12 0.08 }
+        physics Physics { density -1 mass 0.8 }
+      }
+    }
+  ]
+  name "ROBOT_1"
+  boundingObject Pose { translation 0 0 0.12 children [
+    Box { size 0.55 0.4 0.18 } ] }
+  physics Physics { density -1 mass 18.0 }
+  controller "intellibot_controller"
+  supervisor TRUE
+}
+DEF ROBOT_2 Robot {
+  translation -4.8 -2.5 0.0
+  rotation 0 0 1 0.0
+  controllerArgs [ "R2" ]
+  children [
+    Pose { translation 0 0 0.12 children [ Shape { appearance Appearance { material Material { diffuseColor 0.1 0.45 0.2 } } geometry Box { size 0.55 0.4 0.18 } } ] }
+    Lidar {
+      translation 0 0 0.14
+      name "lidar"
+      horizontalResolution 360
+      fieldOfView 6.283185
+      numberOfLayers 1
+      verticalFieldOfView 0.1
+      minRange 0.05
+      maxRange 4.0
+    }
+    Camera {
+      translation 0.15 0 0.12
+      children [ Pose { translation -0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
+      name "camera"
+      fieldOfView 1.0
+      width 320
+      height 240
+      recognition Recognition { frameColor 0.93 0.83 0 }
+    }
+    GPS { name "gps" }
+    InertialUnit { name "imu" }
+    LED { name "status_led" }
+    Pen {
+      translation 0 0 0.001
+      name "pen"
+      leadSize 0.01
+      inkColor 1 0.42 0.05
+      inkDensity 1
+    }
+    Display {
+      translation 0 0 0.16
+      name "dashboard"
+      width 320
+      height 240
+    }
+    TouchSensor {
+      translation 0.28500000000000003 0 0.12
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.15 0.15 0.15 } } geometry Box { size 0.02 0.36000000000000004 0.108 } } ]
+      name "bumper_f"
+      boundingObject Box { size 0.02 0.36000000000000004 0.108 }
+      physics Physics { density -1 mass 0.02 }
+      type "bumper"
+    }
+    TouchSensor {
+      translation -0.28500000000000003 0 0.12
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.15 0.15 0.15 } } geometry Box { size 0.02 0.36000000000000004 0.108 } } ]
+      name "bumper_r"
+      boundingObject Box { size 0.02 0.36000000000000004 0.108 }
+      physics Physics { density -1 mass 0.02 }
+      type "bumper"
+    }
+    Emitter { name "emitter" channel 1 }
+    Receiver { name "receiver" channel 1 }
+    Solid {
+      translation 0.23500000000000001 0 0.03
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.3 0.3 0.3 } }
+        geometry Sphere { radius 0.03 subdivision 2 } } ]
+      name "robot_2_caster_f"
+      contactMaterial "caster"
+      boundingObject Sphere { radius 0.03 subdivision 2 }
+      physics Physics { density -1 mass 0.02 }
+    }
+    Solid {
+      translation -0.23500000000000001 0 0.03
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.3 0.3 0.3 } }
+        geometry Sphere { radius 0.03 subdivision 2 } } ]
+      name "robot_2_caster_r"
+      contactMaterial "caster"
+      boundingObject Sphere { radius 0.03 subdivision 2 }
+      physics Physics { density -1 mass 0.02 }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 0.165 0.04
+      }
+      device [
+        RotationalMotor { name "left_motor" maxVelocity 12.0 maxTorque 5.0 }
+        PositionSensor { name "left_encoder" }
+      ]
+      endPoint Solid {
+        translation 0 0.165 0.04
+        children [ Pose { rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.1 0.1 0.1 } } geometry Cylinder { height 0.04 radius 0.04 subdivision 24 } } ] } ]
+        name "left_wheel"
+        boundingObject Sphere { radius 0.04 subdivision 3 }
+        physics Physics { density -1 mass 0.1 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 -0.165 0.04
+      }
+      device [
+        RotationalMotor { name "right_motor" maxVelocity 12.0 maxTorque 5.0 }
+        PositionSensor { name "right_encoder" }
+      ]
+      endPoint Solid {
+        translation 0 -0.165 0.04
+        children [ Pose { rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.1 0.1 0.1 } } geometry Cylinder { height 0.04 radius 0.04 subdivision 24 } } ] } ]
+        name "right_wheel"
+        boundingObject Sphere { radius 0.04 subdivision 3 }
+        physics Physics { density -1 mass 0.1 }
+      }
+    }
+    LinearJoint {
+      jointParameters JointParameters {
+        axis 0 0 1
+        minStop 0.0
+        maxStop 0.70
+      }
+      device [
+        LinearMotor { name "lift_motor" maxVelocity 0.15 maxForce 200 }
+        PositionSensor { name "lift_sensor" }
+      ]
+      endPoint Solid {
+        translation 0.10 0 0.24
+        children [
+          Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.12 0.12 0.08 } }
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis 0 0 1
+              minStop -2.618
+              maxStop 2.618
+            }
+            device [
+              RotationalMotor { name "arm_motor_1" maxVelocity 1.5 maxTorque 30 }
+              PositionSensor { name "arm_sensor_1" }
+            ]
+            endPoint Solid {
+              translation 0.175 0 0.04
+              children [
+                Pose { translation 0 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.35 0.06 0.04 } } ] }
+                HingeJoint {
+                  jointParameters HingeJointParameters {
+                    axis 0 0 1
+                    anchor 0.175 0 0
+                    minStop -2.792
+                    maxStop 2.792
+                  }
+                  device [
+                    RotationalMotor { name "arm_motor_2" maxVelocity 1.5 maxTorque 30 }
+                    PositionSensor { name "arm_sensor_2" }
+                  ]
+                  endPoint Solid {
+                    translation 0.175 0 0
+                    children [
+                      Pose { translation 0.15 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.30 0.05 0.04 } } ] }
+                      HingeJoint {
+                        jointParameters HingeJointParameters {
+                          axis 0 0 1
+                          anchor 0.30 0 0
+                          minStop -1.5708
+                          maxStop 1.5708
+                        }
+                        device [
+                          RotationalMotor { name "wrist_motor" maxVelocity 2.0 maxTorque 10 }
+                          PositionSensor { name "wrist_sensor" }
+                        ]
+                        endPoint Solid {
+                          translation 0.30 0 0
+                          children [
+                            Shape { appearance Appearance { material Material { diffuseColor 0.25 0.25 0.25 } } geometry Box { size 0.06 0.14 0.05 } }
+                            DistanceSensor {
+                              translation 0.03 0 0
+                              name "palm_ir"
+                              lookupTable [ 0 1024 0, 0.25 0 0 ]
+                              type "infra-red"
+                            }
+                            LinearJoint {
+                              jointParameters JointParameters { axis 0 1 0 minStop 0.0 maxStop 0.13 }
+                              device [
+                                LinearMotor { name "finger_motor_1" maxVelocity 0.1 maxForce 15 }
+                                PositionSensor { name "finger_sensor_1" }
+                              ]
+                              endPoint Solid {
+                                translation 0.06 0.05 0
+                                children [
+                                  Shape { appearance Appearance { material Material { diffuseColor 0.85 0.1 0.1 } } geometry Box { size 0.08 0.02 0.04 } }
+                                  TouchSensor {
+                                    name "finger_touch_1"
+                                    type "force"
+                                    boundingObject Box { size 0.08 0.02 0.04 }
+                                    physics Physics { density -1 mass 0.05 }
+                                  }
+                                ]
+                                boundingObject Box { size 0.08 0.02 0.04 }
+                                physics Physics { density -1 mass 0.05 }
+                              }
+                            }
+                            LinearJoint {
+                              jointParameters JointParameters { axis 0 -1 0 minStop 0.0 maxStop 0.13 }
+                              device [
+                                LinearMotor { name "finger_motor_2" maxVelocity 0.1 maxForce 15 }
+                                PositionSensor { name "finger_sensor_2" }
+                              ]
+                              endPoint Solid {
+                                translation 0.06 -0.05 0
+                                children [
+                                  Shape { appearance Appearance { material Material { diffuseColor 0.85 0.1 0.1 } } geometry Box { size 0.08 0.02 0.04 } }
+                                  TouchSensor {
+                                    name "finger_touch_2"
+                                    type "force"
+                                    boundingObject Box { size 0.08 0.02 0.04 }
+                                    physics Physics { density -1 mass 0.05 }
+                                  }
+                                ]
+                                boundingObject Box { size 0.08 0.02 0.04 }
+                                physics Physics { density -1 mass 0.05 }
+                              }
+                            }
+                          ]
+                          boundingObject Box { size 0.06 0.14 0.05 }
+                          physics Physics { density -1 mass 0.2 }
+                        }
+                      }
+                    ]
+                    boundingObject Pose { translation 0.15 0 0 children [ Box { size 0.30 0.05 0.04 } ] }
+                    physics Physics { density -1 mass 0.4 }
+                  }
+                }
+              ]
+              boundingObject Box { size 0.35 0.06 0.04 }
+              physics Physics { density -1 mass 0.5 }
+            }
+          }
+        ]
+        boundingObject Box { size 0.12 0.12 0.08 }
+        physics Physics { density -1 mass 0.8 }
+      }
+    }
+  ]
+  name "ROBOT_2"
+  boundingObject Pose { translation 0 0 0.12 children [
+    Box { size 0.55 0.4 0.18 } ] }
+  physics Physics { density -1 mass 18.0 }
+  controller "intellibot_controller"
+  supervisor TRUE
+}
+DEF FLEET_MANAGER Robot {
+  translation -5.5 0 0.5
+  children [
+    Shape {
+      appearance Appearance { material Material { diffuseColor 0.2 0.2 0.2 transparency 0.8 } }
+      geometry Box { size 0.1 0.1 0.1 }
+    }
+    Emitter {
+      name "emitter"
+      channel 1
+    }
+    Receiver {
+      name "receiver"
+      channel 1
+    }
+  ]
+  name "FLEET_MANAGER"
+  controller "fleet_manager"
+  supervisor TRUE
+}

@@ -12,6 +12,7 @@ import config
 import kinematics as k
 from waypoint_follower import WaypointFollower
 from decision_maker import DecisionMaker
+from warehouse_grid import build_warehouse_grid
 
 
 class Unicycle:
@@ -154,3 +155,55 @@ def test_blocked_in_navigate_is_error():
     finally:
         waypoint_follower.WaypointFollower.update = real_update
     assert final == "ERROR"
+
+
+def test_live_replanning_with_grid(capsys):
+    """Phase 12.1: Live dynamic replanning test.
+    When a grid is supplied and the path is blocked, the FSM replans and logs the trace."""
+    from warehouse_grid import build_warehouse_grid
+    from path_utils import plan_to
+    
+    grid = build_warehouse_grid()
+    def live_planner(start_xy, goal_xy):
+        return plan_to(grid, start_xy, goal_xy, resample_spacing=0.3, inflation_radius=config.INFLATION_RADIUS)
+        
+    sim = Unicycle(0.0, -0.3, 0.0)
+    fsm = DecisionMaker(live_planner, fixed_estimator(-3.1, -0.5), grid=grid)
+    
+    # Put FSM in DELIVER state heading to Zone B
+    goal = config.ZONE_OF[config.TASK_ZONE]
+    wps, _ = live_planner(sim.pose()[:2], goal)
+    fsm.state = "DELIVER"
+    fsm.follower = WaypointFollower(wps)
+    
+    # Simulate a LiDAR block during delivery
+    fsm.follower.status = "BLOCKED"
+    fake_scan = [0.4] * 360
+    fake_angles = [0.0] * 360
+    v, w = fsm.update(sim.pose(), fake_scan, fake_angles, [], 10.0, 0.05)
+    
+    assert fsm.replans == 1
+    assert fsm.state == "DELIVER"  # Still delivering, but on new replanned path!
+    out = capsys.readouterr().out
+    assert "OBSTACLE DETECTED" in out
+    assert "Current path BLOCKED at waypoint" in out
+    assert "REPLANNING from" in out
+    assert "REPLAN SUCCESS" in out
+
+
+def test_nan_estimator_resilience():
+    """Verify that if an estimator returns NaN or non-finite values, FSM does not crash."""
+    grid = build_warehouse_grid()
+    sim = Unicycle(0.0, -0.3, 0.0)
+    
+    # Estimator returns NaN coordinates
+    def nan_estimator(det, pose, scan, angles):
+        return (float('nan'), float('nan'), 0.0, float('nan'))
+
+    fsm = DecisionMaker(straight_planner(), nan_estimator, grid=grid)
+    det = FakeDet()
+    # Step FSM in FIND_PACKAGE
+    fsm.state = "FIND_PACKAGE"
+    v, w = fsm.update(sim.pose(), [2.0]*360, [0.0]*360, [det], 0.0, 0.05)
+    # Must not crash, streak must increment
+    assert fsm.detection_streak == 1

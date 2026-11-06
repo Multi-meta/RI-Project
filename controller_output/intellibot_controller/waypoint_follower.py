@@ -20,10 +20,10 @@ status: FOLLOWING | BLOCKED | REACHED
 
 import math
 
-import controller_output.intellibot_controller.config as config
-from controller_output.intellibot_controller.kinematics import wrap_to_pi
-from controller_output.intellibot_controller.mapping import front_min_range
-from controller_output.intellibot_controller.pid import PID
+import config
+from kinematics import wrap_to_pi
+from mapping import front_min_range
+from pid import PID
 
 
 class WaypointFollower:

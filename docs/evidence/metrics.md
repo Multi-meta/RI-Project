@@ -28,4 +28,20 @@
 
 ![planned vs actual](planned_vs_actual.png)
 
+## Repeatability campaign (different start poses)
+
+| run | result | time (s) | final goal err (m) |
+|---|---|---|---|
+| 0 | DONE | 61.9 | 0.12 |
+| 1 | DONE | 53.1 | 0.12 |
+| 2 | DONE | 53.1 | 0.12 |
+| 3 | DONE | 63.2 | 0.12 |
+| 4 | DONE | 45.9 | 0.08 |
+| 5 | DONE | 59.5 | 0.12 |
+| 6 | DONE | 54.8 | 0.12 |
+| 7 | DONE | 103.1 | 0.12 |
+| 8 | DONE | 65.7 | 0.12 |
+| 9 | DONE | 55.9 | 0.08 |
+**Success rate: 10/10**
+
 Not covered here (measured by dedicated tools): LiDAR range accuracy (`plot_lidar.py`), detector rates (`eval_detector.py`), A* optimality (`plot_astar.py`).

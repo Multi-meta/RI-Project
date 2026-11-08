@@ -198,6 +198,20 @@ def obstacle_in_sector(scan, angles, a_min, a_max):
     return float(vals.min()) if vals.size else math.inf
 
 
+def self_filter(ranges, radius):
+    """Remove LiDAR returns from the robot itself (range < ``radius`` -> inf).
+
+    Also maps NaN/negative values to inf (= "no return"), the convention used
+    everywhere else. Returns a new float array.
+    """
+    r = np.array(ranges, dtype=float, copy=True)
+    bad = ~np.isfinite(r) | (r < 0.0)
+    r[bad] = math.inf
+    if radius and radius > 0:
+        r[r < radius] = math.inf
+    return r
+
+
 def front_min_range(scan, angles, cone):
     """Minimum range in the forward cone +-`cone` radians."""
     return obstacle_in_sector(scan, angles, -cone, cone)

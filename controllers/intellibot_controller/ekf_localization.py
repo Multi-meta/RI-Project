@@ -219,6 +219,40 @@ class EKFLocalizer:
         
         return True
         
+    def update_bearing(self, bearing: float, landmark_pos, R_bearing: float,
+                       gate_threshold: float = 6.63) -> bool:
+        """Bearing-only update to a known landmark (e.g. a camera marker).
+
+        z = bearing (robot frame, rad); h(x) = atan2(ly - y, lx - x) - theta
+        H = [dy/q, -dx/q, -1]  with dx = lx - x, dy = ly - y, q = dx^2 + dy^2
+        R_bearing comes from camera_pipeline.camera_bearing_variance(), which
+        grows as the image gets darker and is inf when the camera is blind
+        (checklist 11.5): then the update is skipped, so a lights-off camera
+        is de-weighted AUTOMATICALLY instead of by a hard switch.
+        Gating: NIS = y^2 / S < chi^2(1 dof, 99 %) = 6.63.
+        """
+        if not np.isfinite(R_bearing) or R_bearing <= 0 or not np.isfinite(bearing):
+            return False
+        x, y, theta = self.x
+        lx, ly = landmark_pos
+        dx, dy = lx - x, ly - y
+        q = dx * dx + dy * dy
+        if q < 1e-9:
+            return False
+        innov = wrap_to_pi(bearing - (np.arctan2(dy, dx) - theta))
+        H = np.array([dy / q, -dx / q, -1.0])
+        S = float(H @ self.P @ H + R_bearing)
+        nis = innov * innov / S
+        self.nis_history.append(nis)
+        if nis > gate_threshold:
+            return False
+        K = self.P @ H / S
+        self.x = self.x + K * innov
+        self.x[2] = wrap_to_pi(self.x[2])
+        I_KH = np.eye(3) - np.outer(K, H)
+        self.P = I_KH @ self.P @ I_KH.T + np.outer(K, K) * R_bearing
+        return True
+
     def get_pose(self) -> Tuple[float, float, float]:
         """Return current pose estimate."""
         return self.x[0], self.x[1], self.x[2]

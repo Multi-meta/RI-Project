@@ -36,6 +36,7 @@ class WaypointFollower:
         self.status = "FOLLOWING"
         self.cross_track_err = 0.0
         self.last_heading_err = 0.0
+        self.reversing = False
 
         self.v_max = v_max if v_max is not None else config.V_MAX
         self.w_max = w_max if w_max is not None else config.W_MAX
@@ -104,6 +105,7 @@ class WaypointFollower:
             reverse = True
 
         self.last_heading_err = heading_err
+        self.reversing = reverse            # read by DecisionMaker._handle_blocked
 
         # --- Directional LiDAR safety stop ---
         if scan is not None and angles is not None:

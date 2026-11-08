@@ -52,3 +52,33 @@ class RunLogger:
 def transition(msg):
     """FSM transition / event print. Prefixed for easy console grepping."""
     print(f"[FSM] {msg}")
+
+
+class CsvLogger:
+    """Generic CSV logger with a fixed column list (e.g. logs/manip.csv)."""
+
+    def __init__(self, path, columns):
+        self.path = path
+        self.columns = list(columns)
+        self._fh = None
+        self._writer = None
+
+    def log(self, **kwargs):
+        if self._writer is None:
+            os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+            self._fh = open(self.path, "w", newline="")
+            self._writer = csv.DictWriter(self._fh, fieldnames=self.columns)
+            self._writer.writeheader()
+        self._writer.writerow({c: kwargs.get(c, "") for c in self.columns})
+
+    def close(self):
+        if self._fh:
+            self._fh.close()
+            self._fh = None
+            self._writer = None
+
+
+MANIP_COLUMNS = ["t", "state", "operation", "step", "q_shoulder", "q_elbow",
+                 "q_wrist", "tcp_x", "tcp_z", "finger_width", "force_left",
+                 "force_right", "palm_range", "latch_present", "latched",
+                 "arm_status"]

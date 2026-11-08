@@ -25,18 +25,47 @@ sys.path.insert(0, _HERE)
 
 from controller import Supervisor  # noqa: E402  (Webots API)
 
+import json  # noqa: E402
+
 import numpy as np  # noqa: E402
 import config  # noqa: E402
 import path_utils  # noqa: E402
+import shelving  # noqa: E402
+from arm_driver import ParcelAuditor, WebotsArmDriver  # noqa: E402
 from decision_maker import DecisionMaker  # noqa: E402
+from pick_place import build_manipulator, manip_log_row  # noqa: E402
 from display_dash import Dashboard, set_state_led  # noqa: E402
 from ekf_localization import EKFLocalizer  # noqa: E402
 from kinematics import inverse_kinematics  # noqa: E402
-from logger import RunLogger  # noqa: E402
+from logger import MANIP_COLUMNS, CsvLogger, RunLogger  # noqa: E402
 from mapping import front_min_range  # noqa: E402
 from mission_kpis import MissionKPITracker  # noqa: E402
 from perception import Perception, check_world_consistency  # noqa: E402
 from warehouse_grid import build_warehouse_grid  # noqa: E402
+
+
+def log_dir():
+    """Where run logs go (INTELLIBOT_LOG_DIR overrides <repo>/logs)."""
+    return os.environ.get("INTELLIBOT_LOG_DIR", os.path.join(_ROOT, "logs"))
+
+
+def apply_env_overrides():
+    """Batch/scenario runs: choose the task without the interactive dialog.
+
+    INTELLIBOT_TASK_PACKAGE=P1|P2|P3, INTELLIBOT_TASK_ZONE=A|B,
+    INTELLIBOT_INTERACTIVE=0|1 (tools/run_scenario.py sets these).
+    """
+    pkg = os.environ.get("INTELLIBOT_TASK_PACKAGE")
+    if pkg in config.PACKAGE_COLORS:
+        config.TASK_PACKAGE = pkg
+        config.TASK_PACKAGE_DEF = f"PKG_{pkg}"
+        config.TASK_PACKAGE_COLOR = config.PACKAGE_COLORS[pkg]
+    zone = os.environ.get("INTELLIBOT_TASK_ZONE")
+    if zone in config.ZONE_OF:
+        config.TASK_ZONE = zone
+    inter = os.environ.get("INTELLIBOT_INTERACTIVE")
+    if inter in ("0", "1"):
+        config.INTERACTIVE_MODE = inter == "1"
 
 
 def planner_factory(grid):
@@ -64,7 +93,10 @@ def apply_campaign_start(robot):
 
 
 class PackageCarrier:
-    """Moves the task package Solid with the robot while fsm.carrying is set.
+    """LEGACY placeholder (worlds WITHOUT the arm only): teleports the task
+    package Solid with the robot while fsm.carrying is set. It is NOT used
+    when the manipulator is present — then the parcel is physically carried
+    by the gripper latch (Webots Connector) and nothing is teleported.
 
     In interactive mode the target Solid changes every mission: reload_node()
     is called on every update() so it picks up config.TASK_PACKAGE_DEF changes.
@@ -151,6 +183,7 @@ def main():
     print(f"[{robot_id}] basic time step: {timestep} ms")
     print_env_versions()
 
+    apply_env_overrides()
     run_idx, log_suffix = apply_campaign_start(robot)
     if robot_id != "INTELLIBOT":
         log_suffix = f"_{robot_id}" + log_suffix
@@ -195,15 +228,30 @@ def main():
 
     # In interactive mode start directly in AWAIT_INPUT so the background
     # thread fires the first prompt without blocking the step loop.
-    fsm = DecisionMaker(planner, estimator, grid=grid)
+    # Mobile manipulator (arm + gripper + latch). Falls back to the legacy
+    # placeholder pickup only if the world has no arm devices.
+    arm_driver = WebotsArmDriver(robot, timestep)
+    manip, kin = None, None
+    if arm_driver.available:
+        manip, kin = build_manipulator(arm_driver)
+        print(f"[{robot_id}] manipulator ready: shoulder/elbow/wrist + gripper + "
+              f"latch '{config.GRIPPER_CONNECTOR_NAME}'")
+    else:
+        print(f"[{robot_id}] WARNING: no manipulator in this world "
+              f"(missing {arm_driver.missing}) — PICK is a PLACEHOLDER")
+    auditor = ParcelAuditor(robot)
+    manip_log = (CsvLogger(os.path.join(log_dir(), f"manip{log_suffix}.csv"),
+                           MANIP_COLUMNS) if manip is not None else None)
+
+    fsm = DecisionMaker(planner, estimator, grid=grid, manipulator=manip,
+                        kinematics=kin)
     if interactive and run_idx is None:
         fsm.state = "AWAIT_INPUT"
         print("[INTELLIBOT] Interactive mode — waiting for task input in console...",
               flush=True)
 
-    carrier = PackageCarrier(robot)
-    logger = RunLogger(os.path.join(_ROOT, "logs",
-                                    f"run{log_suffix}.csv")).start()
+    carrier = PackageCarrier(robot) if manip is None else None
+    logger = RunLogger(os.path.join(log_dir(), f"run{log_suffix}.csv")).start()
 
     # Enumerate attached devices
     attached_devices = {}
@@ -226,17 +274,6 @@ def main():
     if receiver:
         receiver.enable(timestep)
 
-    arm_devices = {}
-    for dev_name in ["lift_motor", "arm_motor_1", "arm_motor_2", "wrist_motor",
-                     "finger_motor_1", "finger_motor_2"]:
-        if dev_name in attached_devices:
-            arm_devices[dev_name] = attached_devices[dev_name]
-    for dev_name in ["lift_sensor", "arm_sensor_1", "arm_sensor_2", "wrist_sensor",
-                     "finger_sensor_1", "finger_sensor_2", "palm_ir"]:
-        if dev_name in attached_devices:
-            d = attached_devices[dev_name]
-            d.enable(timestep)
-            arm_devices[dev_name] = d
 
     cart1_node, cart2_node = None, None
     fast_sphere_node, fast_cart_node = None, None
@@ -263,8 +300,41 @@ def main():
     step_i = 0
     finished = False
     # Only auto-quit in unattended campaign runs; never in interactive mode.
-    quit_at_end = config.AUTO_QUIT and run_idx is not None and not interactive
+    scenario_run = os.environ.get("INTELLIBOT_INTERACTIVE") == "0"
+    quit_at_end = (config.AUTO_QUIT and (run_idx is not None or scenario_run)
+                   and not interactive)
     TERMINAL_STATES = ("DONE", "ERROR")
+
+    def audit_and_save_report():
+        """Evaluation-only ground-truth audit + JSON mission report."""
+        report = dict(fsm.mission_report or {})
+        if manip is not None and fsm.target_slot is not None:
+            pos = auditor.position(config.TASK_PACKAGE_DEF)
+            if pos is not None:
+                ok, err = shelving.audit_placement(pos, fsm.target_slot)
+                report["ground_truth_audit"] = {
+                    "parcel_xyz": [round(v, 4) for v in pos],
+                    "slot_center": [round(v, 4) for v in fsm.target_slot.center],
+                    "in_slot": ok, "err_xy_m": round(err["xy"], 4),
+                    "err_z_m": round(err["z"], 4),
+                    "note": "Supervisor ground truth, evaluation only — not "
+                            "used by the robot's decisions"}
+                print(f"[AUDIT] {config.TASK_PACKAGE_DEF} at "
+                      f"({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}) vs slot "
+                      f"{fsm.target_slot.slot_id} -> "
+                      f"{'IN SLOT' if ok else 'NOT IN SLOT'} "
+                      f"(xy err {err['xy'] * 100:.1f} cm, z err {err['z'] * 100:.1f} cm)")
+                if ok != fsm.delivery_verified:
+                    print("[AUDIT] WARNING: sensor verification and ground truth "
+                          "disagree — investigate before claiming success")
+        report.update(kpi_tracker.generate_report().get("summary", {}))
+        path = os.path.join(log_dir(), f"mission_report{log_suffix}.json")
+        try:
+            with open(path, "w") as fh:
+                json.dump(report, fh, indent=2, default=str)
+            print(f"[INTELLIBOT] mission report -> {path}")
+        except OSError as exc:
+            print(f"[INTELLIBOT] could not write mission report: {exc}")
 
     def finish():
         pose = perception.get_pose()
@@ -273,15 +343,26 @@ def main():
                    theta=round(pose[2], 4),
                    state=fsm.state, wp_idx=-1, n_detections=0)
         logger.close()
+        if manip_log is not None:
+            manip_log.close()
+        audit_and_save_report()
         sys.stdout.flush()
+
+    cam_health = {}
 
     while robot.step(timestep) != -1:
         sim_time = robot.getTime()
         pose = perception.get_pose()
         odom_pose, _ = perception.get_odometry()
         scan, angles = perception.get_lidar()
-        frame = perception.get_frame()
-        dets = perception.get_detections(frame)
+        frames = perception.get_camera_frames(sim_time)
+        for role, fr in frames.items():          # log camera health transitions
+            if cam_health.get(role) != fr.health:
+                print(f"[CAMERA] [t={sim_time:.2f}s] {role}: "
+                      f"{cam_health.get(role, '-')} -> {fr.health} {fr.reason}")
+                cam_health[role] = fr.health
+        dets = perception.get_detections(frames["front"].image,
+                                         frames["rear"].image)
 
         if cart1_node is not None:
             c1_vx = 0.4 if (int(sim_time / 12.5) % 2 == 0) else -0.4
@@ -330,7 +411,6 @@ def main():
             operating_pose = pose
 
         if emitter and int(sim_time * 10) % 10 == 0:
-            import json
             try:
                 hb_msg = json.dumps({
                     'channel': 'heartbeat', 'sender_id': robot_id,
@@ -347,7 +427,10 @@ def main():
                           timestep / 1000.0)
         wl, wr = inverse_kinematics(v, w)
         perception.set_wheel_speeds(wl, wr)
-        carrier.update(operating_pose, fsm.carrying)
+        if carrier is not None:
+            carrier.update(operating_pose, fsm.carrying)
+        if manip_log is not None and step_i % log_every == 0 and not finished:
+            manip_log.log(**manip_log_row(manip, sim_time, fsm.state))
         _extended_set_led(led, fsm.state)
 
         if dash is not None and step_i % dash_every == 0:
@@ -384,8 +467,9 @@ def main():
             print(f"[INTELLIBOT] mission {fsm.state} — robot idle, "
                   f"dashboard stays live (pause/reset the simulation to stop)")
             sys.stdout.flush()
-        elif sim_time > 300.0:
-            print("[INTELLIBOT] 300 s timeout — stopping")
+        elif sim_time > config.MISSION_TIMEOUT_S and not interactive:
+            # (interactive sessions run until the operator ends them)
+            print(f"[INTELLIBOT] {config.MISSION_TIMEOUT_S:.0f} s timeout — stopping")
             finished = True
             finish()
             break

@@ -95,6 +95,40 @@ PACKAGES = [
     ("PKG_P3", -3.1, -0.5, "blue"),
 ]
 
+# Destination shelving (delivery racks) -------------------------------------
+# One warehouse-style rack per dispatch zone, standing against the EAST wall
+# directly behind its zone patch. The robot parks inside the zone, faces the
+# rack (+x) and the arm places the parcel on a shelf level. Every derived
+# number (slot centres, footprints for the occupancy grid, docking lines) is
+# computed in shelving.py from these constants, so the world generator, the
+# planner's map and the FSM always agree.
+PKG_MASS = 0.5                                # kg, parcel mass (world + arm load)
+DEST_RACK_DEPTH = 0.32                        # m, along x (front at x = front_x)
+DEST_RACK_BAY_WIDTH = 0.45                    # m, along y, per bay (> open gripper 0.29 m)
+DEST_RACK_BAYS = 2                            # bays per rack
+DEST_RACK_LEVEL_TOPS = (0.15, 0.41, 0.67)     # m, top surface of each platform (L1..L3)
+DEST_RACK_REACHABLE_LEVELS = (1, 2)           # levels the arm can serve (L3 = overflow)
+DEST_RACK_PLATFORM_THICKNESS = 0.02           # m
+DEST_RACK_POST_SIZE = 0.03                    # m, square uprights
+DEST_RACK_PANEL_THICKNESS = 0.01              # m, back panel + kick plate
+DEST_RACK_WALL_GAP = 0.02                     # m, gap between rack back and the wall
+DEST_RACK_SLOT_INSET = 0.03                   # m, parcel near face behind the rack front
+DEST_RACK_FRONT_X = (ARENA_X_MAX - DEST_RACK_WALL_GAP - DEST_RACK_DEPTH)   # 3.66 m
+DEST_RACK_FRAME_COLOR = (0.40, 0.42, 0.46)    # steel grey: saturation ~0.13, outside every
+DEST_RACK_SHELF_COLOR = (0.62, 0.63, 0.65)    #   detector HSV window (S_min = 80/255)
+# zone -> (rack centre y, DEF name, slot-id prefix)
+DEST_RACKS = {
+    "A": (0.9, "DEST_RACK_A", "RA"),
+    "B": (-0.9, "DEST_RACK_B", "RB"),
+}
+DEST_RACK_WIDTH = DEST_RACK_BAYS * DEST_RACK_BAY_WIDTH + DEST_RACK_POST_SIZE
+DEST_RACK_CENTER_X = DEST_RACK_FRONT_X + DEST_RACK_DEPTH / 2.0
+# Footprints (cx, cy, sx, sy) added to the static map below: the planner must
+# never treat solid shelf structure as free space.
+DEST_RACK_FOOTPRINTS = [(DEST_RACK_CENTER_X, cy, DEST_RACK_DEPTH, DEST_RACK_WIDTH)
+                        for (cy, _d, _p) in DEST_RACKS.values()]
+STATIC_OBSTACLES = STATIC_OBSTACLES + DEST_RACK_FOOTPRINTS
+
 ROBOT_START = (0.0, -0.3, 0.0)                # (x, y, yaw)
 
 # Colors for the world generator + detector association (BGR tuples live in the
@@ -170,16 +204,41 @@ LIDAR_MOUNT_Z = 0.14
 # +0.02 rad offset. This was the cause of the 0.6 m package-position error.
 LIDAR_ANGLE_SIGN = -1.0                       # measured: index increases CW
 LIDAR_ANGLE_OFFSET = 0.02                     # rad, from calibration
+# Self-filter: the arm's rear support post crosses the LiDAR plane ~0.11 m
+# behind the sensor. Webots LiDARs DO see the robot's own geometry (minRange
+# only hides it, "but still occlude[s] other objects"), so returns closer than
+# this radius are the robot itself and are discarded (-> inf). Nothing
+# external can be closer than the bumpers (0.17 m), so no real obstacle is lost.
+LIDAR_SELF_FILTER_RANGE = 0.15                # m
 
 # Camera
+# Both cameras use a PLANAR projection. Webots limits a planar camera's
+# fieldOfView to [0, pi]; the previous value 3.14159265 (= pi, labelled
+# "90 deg") collapsed the frustum (focal length ~ 0 px) so every frame was a
+# smear of the colour straight ahead. 1.0 rad (57 deg) is the value the
+# detector evaluation set, position-estimate evidence and the 10/10 campaign
+# were captured with (docs/evidence/), so it is restored for BOTH cameras.
 CAMERA_WIDTH = 320
 CAMERA_HEIGHT = 240
-CAMERA_FOV = 3.14159265                           # 90 deg wide-angle FOV (front camera)
-REAR_CAMERA_FOV = 3.14159265                      # 90 deg wide-angle FOV (rear camera)
+CAMERA_FOV = 1.0                              # rad, front camera (planar, < pi)
+REAR_CAMERA_FOV = 1.0                         # rad, rear camera (planar, < pi)
+CAMERA_PROJECTION = "planar"                  # Webots Camera.projection
+CAMERA_NEAR = 0.01                            # m, Webots Camera.near
 YIELD_WAIT_TIME = 8.0                         # s, pause for moving obstacle to pass
-CAMERA_MOUNT_X = 0.15
-CAMERA_MOUNT_Z = 0.20
+# Lens positions in the robot frame (FLU). The front lens sits on the body's
+# front face, the rear lens on the back face, both at the validated mid-eval
+# height (below the LiDAR plane and below the arm workspace, so the arm never
+# occludes them while stowed). The generator writes EXACTLY these numbers.
+CAMERA_MOUNT_X = 0.15                         # m, front lens (= BODY_LENGTH / 2)
+CAMERA_MOUNT_Z = 0.12                         # m, both lenses
+REAR_CAMERA_MOUNT_X = -0.15                   # m, rear lens (= -BODY_LENGTH / 2)
+REAR_CAMERA_YAW = math.pi                     # rad, rear camera looks along -x
+CAMERA_HOUSING_SIZE = (0.016, 0.04, 0.024)    # m (depth, width, height), BEHIND the lens
 REAR_CAMERA_NAME = "rear_camera"
+CAMERA_BLANK_STD_MIN = 2.0                    # grey-level std below this = blank frame
+CAMERA_FROZEN_FRAMES = 30                     # identical consecutive frames = frozen
+CAMERA_NOMINAL_MEAN = 90.0                    # grey level of a normally lit frame
+CAMERA_DARK_MEAN = 15.0                       # below: camera treated as blind (lights off)
 
 # Detector (OpenCV hue 0-180 scale). Kept out of the yellow(~30)/cyan(~90)
 # hue bands so zone patches can never be confused with packages.
@@ -188,8 +247,11 @@ HSV_RANGES = {
     "green": [((40, 80, 60), (80, 255, 255))],
     "blue":  [((105, 80, 60), (135, 255, 255))],
 }
-MIN_CONTOUR_AREA = 30.0                      # px^2 at 320x240 (P3 at ~4 m is ~14 px wide)
-ASPECT_MIN, ASPECT_MAX = 0.4, 2.5             # bbox aspect ratio window
+# Restored to the values validated by docs/evidence/detector_eval.md (they
+# had been loosened to 30 px^2 / 0.4-2.5 to compensate for the degenerate
+# pi-rad FOV, which also broke tests/test_detector.py::test_small_blob_rejected).
+MIN_CONTOUR_AREA = 100.0                      # px^2 at 320x240 (P3 at ~4 m is ~14 px wide)
+ASPECT_MIN, ASPECT_MAX = 0.6, 1.6             # bbox aspect ratio window
 
 # Package position estimate
 PKG_BEARING_WINDOW = math.radians(3.0)        # lidar min-range window around bearing
@@ -207,6 +269,8 @@ TASK_PACKAGE_DEF = "PKG_P3"
 TASK_PACKAGE_COLOR = "blue"
 TASK_ZONE = "B"
 AUTO_QUIT = True                              # simulationQuit(0) at DONE
+MISSION_TIMEOUT_S = 600.0                     # s, non-interactive runs (was 300 s; docking +
+                                              # pick + place adds ~1-2 min of sim time)
 
 # Interactive multi-pickup loop:
 #   True  -> after each delivery the robot returns to center and asks for the
@@ -282,6 +346,15 @@ STATE_LED = {                                 # 0xRRGGBB per FSM state
     "ERROR": 0xFF0000,
     "RETURN_TO_CENTER": 0x00FFFF,   # cyan
     "AWAIT_INPUT": 0xFF00FF,        # magenta
+    # manipulation states (Phase 16 FSM v2 / 17.2 LED = FSM state)
+    "ARM_STOW": 0x8888FF,
+    "DOCK_PICK": 0x0088FF,
+    "ARM_PICK": 0xFF8800,
+    "VERIFY_ATTACHMENT": 0xFFCC00,
+    "DOCK_PLACE": 0x00CC88,
+    "ARM_PLACE": 0xFF6600,
+    "VERIFY_DELIVERY": 0x88FF00,
+    "ARM_RECOVER": 0xFF00AA,
 }
 
 # ------------------------------ 12. Repeatability campaign (6.8) -------------
@@ -355,8 +428,8 @@ SENSOR_POSITIONS = {
     'gps': (0.0, 0.0, 0.15),
     'imu': (0.0, 0.0, 0.05),
     'lidar': (0.0, 0.0, 0.20),
-    'camera': (0.15, 0.0, 0.15),
-    'rear_camera': (-0.15, 0.0, 0.15),
+    'camera': (CAMERA_MOUNT_X, 0.0, CAMERA_MOUNT_Z),
+    'rear_camera': (REAR_CAMERA_MOUNT_X, 0.0, CAMERA_MOUNT_Z),
     'ir_fl': (0.15, 0.10, 0.10),
     'ir_fr': (0.15, -0.10, 0.10),
     'ir_l': (0.0, 0.15, 0.10),
@@ -375,6 +448,7 @@ EKF_R_LANDMARK = [0.2**2, (10*math.pi/180)**2]    # Landmark [range, bearing]
 EKF_GATE_GPS = 9.21                               # Chi-square 2 DOF @ 99%
 EKF_GATE_IMU = 6.63                               # Chi-square 1 DOF @ 99%
 EKF_GATE_LANDMARK = 9.21                          # Chi-square 2 DOF @ 99%
+EKF_R_CAMERA_BEARING = (2 * math.pi / 180) ** 2   # camera marker bearing (lit), rad^2
 
 # ---------------------------------------------------------------- Tracking & Fusion ---
 TRACKER_CLUSTER_DISTANCE = 0.5                     # m
@@ -431,6 +505,9 @@ GRIPPER_CLOSE_FORCE = 10.0                         # N
 GRIPPER_GRASP_WIDTH_MIN = 0.05                     # m
 GRIPPER_GRASP_WIDTH_MAX = 0.12                     # m
 GRIPPER_GRASP_FORCE_MIN = 2.0                      # N
+# NOTE: the ARM_*/GRIPPER_*/DOCK_* constants above are the v2 (SCARA + lift)
+# design placeholders of Phase 14; no module reads them. The manipulator that
+# is actually built into the mission robot is configured in section 13 below.
 
 # Docking tolerances
 DOCK_LATERAL_TOL = 0.03                            # m
@@ -530,3 +607,119 @@ DASHBOARD_SHOW_COSTMAP = False                     # toggle for visualization
 # - grasp_success_rate, place_success_rate
 # - sensor_health_events
 # - ekf_rmse (vs ground truth)
+
+
+# ========================================================================
+# 13. Mobile manipulator on the mission robot (shoulder / elbow / wrist +
+#     parallel gripper + latch).  Single source of truth for the world
+#     generator (tools/generate_world.py), the kinematics (arm_kinematics.py),
+#     the controllers (arm_controller.py, gripper.py, pick_place.py) and docking.
+# ========================================================================
+# Frames: robot frame FLU, origin on the floor under the wheel axle. The arm
+# moves in the robot's x-z plane (y = 0). Joint angles are measured from the
+# robot's +x axis, POSITIVE = UP (Webots hinge axis 0 -1 0). The gripper pitch
+# phi = q1 + q2 + q3 is kept at 0 (gripper horizontal, pointing forward).
+#
+# Mount: a slim post at the rear of the body carries the shoulder. Placing it
+# at the rear keeps the front camera, the front LiDAR sector and the front
+# bumper completely free; the only LiDAR self-occlusion is a ~13 deg sector
+# straight behind the robot (see LIDAR_SELF_FILTER_RANGE).
+ARM_BASE_X = -0.115                           # m, post / shoulder x in robot frame
+ARM_SHOULDER_Z = 0.25                         # m, shoulder axis height above floor
+ARM_POST_SIZE = 0.025                         # m, square post cross-section
+ARM_UPPER_LEN = 0.28                          # m, shoulder -> elbow (L1)
+ARM_FORE_LEN = 0.25                           # m, elbow -> wrist   (L2)
+ARM_LINK_THICKNESS = 0.03                     # m, link bar height (for clearance checks)
+ARM_UPPER_PLATE_GAP = 0.07                    # m, clevis: upper arm = two plates this far apart
+ARM_LINK_MASSES = (0.20, 0.15, 0.22)          # kg: upper arm, forearm, gripper body
+# Counterweight (rear battery/ballast plate inside the body), modelled through
+# the base's mass + centre of mass. Static tipping check with a 0.5 kg parcel
+# held 0.40 m ahead: COM 0.04 m ahead of the axle vs. front caster at 0.11 m
+# (without it: 0.09 m — too close). See docs/qa_prep.md.
+ARM_COUNTERWEIGHT_MASS = 0.8                  # kg
+ARM_COUNTERWEIGHT_X = -0.10                   # m, robot frame
+ARM_MOTOR_NAMES = ("shoulder_motor", "elbow_motor", "wrist_motor")
+ARM_SENSOR_NAMES = ("shoulder_sensor", "elbow_sensor", "wrist_sensor")
+ARM_JOINT_LIMITS_RAD = (                      # (min, max); used range: tools/plot_arm_workspace.py
+    (-0.20, 2.45),                            # shoulder (used 17..130 deg)
+    (-3.05, 0.30),                            # elbow    (used -171..-70 deg; folds for carrying)
+    (-0.60, 2.20),                            # wrist    (used -11..100 deg)
+)
+ARM_JOINT_MAX_VEL = (1.0, 1.2, 1.5)           # rad/s (Webots maxVelocity, also trajectory limit)
+ARM_JOINT_MAX_TORQUE = (25.0, 15.0, 6.0)      # N m  (Webots maxTorque)
+ARM_JOINT_MAX_ACC = 2.0                       # rad/s^2, quintic trajectory limit
+ARM_JOINT_TOL = 0.02                          # rad, "joint at target" tolerance
+ARM_TRACKING_ERROR_MAX = 0.25                 # rad, |q_cmd - q_meas| that counts as blocked
+ARM_TRACKING_FAULT_TIME = 0.4                 # s the error must persist -> fault
+ARM_MOTION_TIMEOUT_MARGIN = 3.0               # s added to every planned motion duration
+ARM_CART_STEP = 0.01                          # m, Cartesian line interpolation step
+ARM_CART_SPEED = 0.10                         # m/s, nominal TCP speed on straight lines
+
+# Gripper (two LinearMotor fingers closing along robot y) ----------------
+GRIPPER_WRIST_TO_PALM = 0.05                  # m, wrist axis -> palm face
+GRIPPER_PALM_GAP = 0.01                       # m, palm face -> parcel face when grasped
+# Tool centre point (TCP) = centre of a grasped parcel
+ARM_TCP_OFFSET = GRIPPER_WRIST_TO_PALM + GRIPPER_PALM_GAP + PKG_SIZE / 2.0   # 0.16 m
+GRIPPER_PALM_SIZE = (0.02, 0.30, 0.05)        # m (x, y, z) palm plate
+GRIPPER_OPEN_HALF_WIDTH = 0.13                # m, finger inner face from centre when open
+GRIPPER_FINGER_TRAVEL = 0.12                  # m, per finger (fully closed width 0.02 m)
+GRIPPER_FINGER_SIZE = (0.12, 0.015, 0.04)     # m (length, thickness, height)
+GRIPPER_FINGER_MASS = 0.03                    # kg
+GRIPPER_FINGER_MAX_VEL = 0.05                 # m/s
+GRIPPER_FINGER_MAX_FORCE = 30.0               # N (Webots maxForce)
+GRIPPER_GRIP_FORCE = 12.0                     # N, available force while closing (force-limited)
+GRIPPER_POS_TOL = 0.003                       # m, finger "at target"
+GRIPPER_STALL_TIME = 0.4                      # s without finger motion = stalled on an object
+GRIPPER_WIDTH_TOL = 0.015                     # m, |width - PKG_SIZE| for "holding"
+GRIPPER_FORCE_MIN = 2.0                       # N, per-finger contact force for "holding"
+GRIPPER_PALM_RANGE_MAX = 0.50                 # m, palm range-finder max range
+GRIPPER_PALM_PRESENT_MAX = 0.03               # m, palm range <= this -> parcel at the palm
+GRIPPER_FINGER_MOTOR_NAMES = ("finger_left_motor", "finger_right_motor")
+GRIPPER_FINGER_SENSOR_NAMES = ("finger_left_sensor", "finger_right_sensor")
+GRIPPER_FINGER_TOUCH_NAMES = ("finger_left_touch", "finger_right_touch")
+GRIPPER_PALM_RANGE_NAME = "palm_range"
+GRIPPER_CONNECTOR_NAME = "gripper_latch"
+# Latch = Webots Connector pair (active on the palm, passive on each parcel face).
+CONNECTOR_MODEL = "parcel_latch"
+CONNECTOR_DISTANCE_TOL = 0.04                 # m between connector origins
+CONNECTOR_AXIS_TOL = 0.35                     # rad between the (opposed) x-axes
+CONNECTOR_LOCK_TIMEOUT = 1.0                  # s to see isLocked after lock()
+
+# Named arm poses: TCP (x, z) in the robot frame, gripper horizontal --------
+# Stow/carry: parcel held over the body, elbow folded straight up — parcel
+# bottom at z = 0.18 m (LiDAR plane 0.14 m and both lenses 0.12 m stay clear),
+# parcel front 0.015 m past the bumper line, elbow above the body.
+ARM_STOW_TCP = (0.085, 0.28)
+ARM_SAFE_TRANSIT_Z = 0.27                     # m, TCP height before swinging a parcel over the body
+ARM_PREGRASP_BACKOFF = 0.03                   # m, TCP behind the grasp point (x); wrist stays 1.5 cm off the bumper
+ARM_PREGRASP_RAISE = 0.14                     # m, TCP above the grasp point (z) — fingers clear the top
+ARM_LIFT_CHECK_DZ = 0.05                      # m, small lift used to verify the attachment
+ARM_PLACE_HOVER = 0.015                       # m, parcel bottom above the shelf while inserting
+ARM_PLACE_RELEASE_DROP = 0.003                # m, parcel bottom above the shelf at release
+ARM_PLACE_CLEARANCE = 0.02                    # m, parcel front <-> rack front before inserting
+ARM_RETRACT_DIST = 0.06                       # m, palm retreat used to verify the release
+ARM_VERIFY_RANGE_TOL = 0.02                   # m, palm-range check tolerance after retreat
+ARM_SETTLE_TIME = 0.5                         # s, wait after release before verifying
+ARM_MAX_GRASP_ATTEMPTS = 2                    # dock + grasp attempts before ERROR
+
+# Docking (fine positioning of the base before manipulation) --------------
+ARM_DOCK_PICK_STANDOFF = 0.30                 # m, LiDAR centre -> parcel near face
+ARM_DOCK_PLACE_STANDOFF = 0.25                # m, LiDAR centre -> rack front (kick plate)
+ARM_DOCK_PREDOCK_EXTRA = 0.20                 # m, pre-dock point further back on the line
+ARM_DOCK_RANGE_TOL = 0.008                    # m
+ARM_DOCK_LATERAL_TOL = 0.015                  # m (open gripper clears the parcel by 0.03 m/side)
+ARM_DOCK_HEADING_TOL = math.radians(1.5)      # rad
+ARM_DOCK_POINT_TOL = 0.012                    # m, pre-dock point stabilisation
+ARM_DOCK_V_MAX = 0.06                         # m/s
+ARM_DOCK_W_MAX = 0.6                          # rad/s
+ARM_DOCK_K_RANGE = 0.8                        # 1/s, creep gain on range error
+ARM_DOCK_K_HEADING = 2.0                      # 1/s, heading gain
+ARM_DOCK_K_LATERAL = 3.0                      # rad/m, heading offset per metre of lateral error (creep)
+ARM_DOCK_RANGE_WINDOW = math.radians(3.0)     # rad, +- LiDAR window used for the face range
+ARM_DOCK_MIN_RANGE = 0.20                     # m, never creep closer than this (abort)
+ARM_DOCK_SETTLE_TIME = 0.6                    # s, base stationary before the arm moves
+ARM_DOCK_SETTLE_MOTION = 0.002                # m, max pose change during settle
+ARM_DOCK_TIMEOUT = 45.0                       # s
+ARM_DOCK_MAX_REFINE_SHIFT = 0.30              # m, LiDAR face fit may move the estimate this much
+ARM_DOCK_FACE_JUMP = 0.03                     # m, range discontinuity that ends the face segment
+ARM_DOCK_REFINE_WINDOW = math.radians(20.0)   # rad, +- search window around the estimate bearing

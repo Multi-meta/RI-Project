@@ -169,3 +169,30 @@ read at the mirrored bearing. To verify in Phase 4.2.
   runs, and prints buffered at process death are lost. The controller now
   breaks its own loop 2 s after DONE/ERROR, writes a final CSV row with the
   terminal state, and flushes stdout before quitting.
+
+## Arm, gripper, racks and cameras (2026-11-08, branch feature/ankit-arm-shelves-camera)
+
+> Source: the Webots reference manual (cyberbotics/webots `docs/reference`,
+> read 2026-11-08) and offline checks. **None of this has been observed in a
+> Webots run yet** — the "to verify" column lists what to watch on the GPU laptop.
+
+| Topic | Documented behaviour we rely on | Where used | To verify in Webots |
+|---|---|---|---|
+| Planar camera FOV | `fieldOfView` is limited to [0, π] for `projection "planar"`; vertical FOV = 2·atan(tan(FOV/2)·H/W) | both cameras, FOV 1.0 rad | images look like a normal 57° lens (no smear); `camera_validation.md` = PASS |
+| Camera axes | a Camera looks along its +x, up = +z; `getImage()` = BGRA, rows top→bottom | `camera_pipeline.bgra_to_bgr` | blue parcel appears blue in the saved PNG, on the correct side |
+| Near plane | shapes between the lens and `near` are not rendered | housings now BEHIND the lens | rear image not black at the edges |
+| LiDAR self-hits | "objects closer than minRange are not detected (but still occlude other objects)" → the robot's own post IS seen/occludes | self-filter `< 0.15 m`; ~13° blind sector straight behind | `logs/run.csv` front ranges unchanged; rear sector shows inf behind the post |
+| DistanceSensor | only `infra-red` rays see the robot's own parts; `generic` does not | palm range-finder is `generic` | palm range reads ~0.5 m (max) with an empty gripper |
+| Connector | lock only when a compatible peer (same `model`, active↔passive) is present: distance < `distanceTolerance`, x-axes opposed within `axisTolerance`; `numberOfRotations 0` disables the roll check; `snap FALSE` keeps poses; `isLocked()` = latch STATE, not proof of a link; presence valid after the first sampling period | gripper latch + 4 passive connectors per parcel | `latch_present` becomes 1 at the end of ADVANCE; parcel follows the gripper after LATCH |
+| Connector outside a Robot | allowed ("an object equipped with a passive connector … grasped by a robotic gripper") | parcels are plain `Solid`s | no "Connector must be in a Robot" warning |
+| Joint initial pose | `JointParameters.position` + the endPoint's `rotation` must be consistent (generator writes both) | arm starts in STOW | no jump of the arm at t = 0 |
+| Motor limits | soft `minPosition/maxPosition` must lie inside hard `minStop/maxStop` | generator: stops = limits ± 0.05 rad | no "minStop/maxStop" warnings |
+| Motor `sound` | `RotationalMotor.sound` defaults to a URL | set to `""` on the arm motors | no network/sound warnings |
+| Slider joints | the node is `SliderJoint` (there is no `LinearJoint`) | fingers; v2 world fixed too | v2 world loads |
+| Self-collision | `Robot.selfCollision FALSE` (default) → arm links never collide with the base | design relies on the clearance model instead | — |
+| Force pads | `TouchSensor type "force"` measures the force along its own x-axis; pads are rotated so x = closing direction | finger pads, lookupTable 1:1 N | pad force ≈ 0 when open, > 2 N when closed on a parcel |
+
+**Open question to measure:** whether a finger squeeze plus the latch makes
+the parcel jitter. If it does: lower `GRIPPER_GRIP_FORCE`, raise pad
+friction (`ContactProperties gripper_pad/parcel`), or let the fingers open by
+1 mm after `LATCH` — record the setting that worked here.

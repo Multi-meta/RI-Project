@@ -156,3 +156,137 @@ control), B (perception), C (planning & decisions).
     follower BLOCKED status + FSM replan slot, supervisor access for spawning
     obstacles, DYN_OBSTACLE DEF pre-placed, PICK_DISTANCE_THRESHOLD config,
     mission report prints replans/collisions.
+
+## Robotic arm, gripper, shelving and cameras (final evaluation — Ankit)
+
+30. **Describe the arm.**
+    A 3-joint planar arm mounted on a post at the back of the base: shoulder,
+    elbow and wrist are revolute joints about the robot's y axis, plus a
+    parallel gripper with two sliding fingers. The base gives the yaw and the
+    gross position; the arm gives reach (x) and height (z); the wrist keeps
+    the gripper horizontal (φ = q1+q2+q3 = 0). Each joint is a Webots
+    HingeJoint + RotationalMotor + PositionSensor; each finger a SliderJoint +
+    LinearMotor + PositionSensor with a force TouchSensor pad.
+
+31. **Derive the inverse kinematics.**
+    Wrist point W = TCP − Lt(cos φ, sin φ). With d = |W − S|:
+    cos q2 = (d² − L1² − L2²)/(2 L1 L2) (law of cosines; |cos q2| > 1 →
+    unreachable). Elbow-up: q2 = −acos(·). q1 = atan2(Wz−Sz, Wx−Sx) −
+    atan2(L2 sin q2, L1 + L2 cos q2). q3 = φ − q1 − q2. Tests check IK→FK
+    round trip to 1e-9 m.
+
+32. **Why elbow-up?** It keeps the elbow above the parcel and the camera; the
+    elbow-down solution of the carry pose violates the wrist limit, and for
+    shelf poses it would swing the forearm through the robot body.
+
+33. **Why is the arm at the back of the robot?** Anything attached to the top
+    of the body crosses the LiDAR plane (0.14 m). At the back the only
+    self-return is a ~13° sector straight behind (removed by a 0.15 m
+    self-filter); the front LiDAR sector, the front camera and the front bumper
+    stay completely free.
+
+34. **Webots LiDARs ignore the robot, don't they?** No — the manual says
+    objects closer than minRange "are not detected (but still occlude other
+    objects)". So the post would occlude; we filter its returns and accept the
+    small rear blind sector.
+
+35. **How did you choose link lengths and the mount?** With a 2-D clearance
+    model (arm links, palm, fingers and the carried parcel vs body, bumpers,
+    camera housings, post, floor and rack) evaluated along every planned
+    motion. The first design put the forearm through the carried parcel and
+    the wrist into the bumper; the search found shoulder height 0.25 m and
+    links 0.28/0.25 m with ≥ 1 cm clearance everywhere and ≤ 82 % of full
+    reach (away from the singular stretched pose).
+
+36. **How are joint motions generated?** Joint moves: quintic polynomial
+    (zero velocity/acceleration at both ends) timed from the joint velocity
+    limits. Straight TCP lines: IK every 1 cm, bisected until joints change
+    < 0.05 rad between samples, then timed by the slowest joint per segment so
+    no joint exceeds 80 % of its velocity limit (tested).
+
+37. **How do you know the arm is blocked?** Position sensors: if
+    |q_cmd − q_measured| > 0.25 rad for 0.4 s the motion FAULTS and the arm
+    holds. During INSERT that is reported as SLOT_BLOCKED and the FSM tries the
+    next free slot with the parcel still latched.
+
+38. **How does the gripper hold the parcel?** Fingers close force-limited
+    (12 N available) and stall on the parcel sides; then a Webots Connector
+    latch (active on the palm, passive on each parcel face) is locked, which
+    creates a real physical joint. Release = unlock + open.
+
+39. **Isn't the Connector a cheat?** It is the documented Webots mechanism for
+    gripping objects with a passive connector, i.e. a model of a mechanical
+    latch/magnet. It only locks when the peer is geometrically present
+    (≤ 4 cm, axes opposed within 0.35 rad), `snap` is off so the parcel is not
+    moved, and the holding decision never relies on the latch alone. No
+    Supervisor teleport is used with the arm.
+
+40. **How is the attachment verified?** Sensor fusion: finger width =
+    parcel size ± 1.5 cm (encoders) AND palm range-finder ≤ 3 cm AND (both pad
+    forces ≥ 2 N OR latch locked). Checked before latching, after a 5 cm lift
+    and again in the carry pose. A missed grasp shows as width ≈ 2 cm; a
+    dropped parcel as palm range ≫ 3 cm.
+
+41. **How is the delivery verified?** After release the gripper backs off
+    6 cm; the palm range-finder must read 7 ± 2 cm (the parcel stayed in the
+    slot), the latch must be open and the fingers open. Only then does the FSM
+    reach DONE. Separately, the Supervisor audits the parcel's true position
+    for the report; if the two disagree the console warns.
+
+42. **What is docking and why is it needed?** A* + the follower stop within
+    ~0.1–0.4 m; the gripper tolerates only ±3 cm laterally. Docking: face the
+    target, fit the parcel's LiDAR outline (centre + yaw, corner detection) →
+    dock line; point-stabilise to a pre-dock point; face; refit from the
+    square-on view; creep in with the LiDAR range as feedback to ±0.8 cm;
+    settle. Final lateral error must be ≤ 1.5 cm, heading ≤ 3°.
+
+43. **What went wrong first in docking?** Seen obliquely, the LiDAR saw two
+    faces of the parcel; a single line fit gave a diagonal heading and the
+    palm check failed (correctly — no false success). Fix: corner detection,
+    centre from the corner, choose the face that looks at the aisle, refine
+    twice.
+
+44. **Why these shelf heights?** L1 = 0.15 m (its kick plate is in the LiDAR
+    plane → exact docking range), L2 = 0.41 m (gap leaves 2.5 cm above a
+    parcel on L1 while inserting), L3 = 0.67 m is beyond reach (wrist would
+    need 0.59 m from the shoulder > L1 + L2 = 0.53 m) — overflow storage.
+
+45. **How does the planner know about the racks?** Their footprints are in
+    `STATIC_OBSTACLES`, the same list the world generator uses; tests check
+    the pre-dock poses are free, reachable, and that two routes still exist.
+
+46. **Will the robot tip over?** Static check: with a 0.5 kg parcel at full
+    reach the centre of mass is 4 cm ahead of the axle, 7 cm behind the front
+    caster, thanks to a 0.8 kg counterweight modelled in the base's COM.
+
+47. **What was wrong with the cameras?** The planar FOV was set to π (Webots
+    allows ≤ π; at π the focal length is ~0 so the image collapses); config
+    and the hand-edited world disagreed; the rear camera's housing was in
+    front of its lens; mount offsets were hard-coded. Fixed by a valid 1.0 rad
+    planar FOV, regenerating from config, housings behind the lenses.
+
+48. **How do you convert Webots images?** `getImage()` is BGRA, row-major,
+    top-left first — OpenCV's own layout — so we only drop alpha: no RGB swap,
+    no flip. Tests check channel order and orientation pixel by pixel.
+
+49. **Why is the rear image not mirrored, and how do you get bearings?** The
+    rear camera is the same camera rotated π about z — it sees what you would
+    see standing behind the robot looking back. Image-right is robot-left, so
+    φ = π − atan((u − cx)/f); tests project 3-D points through both cameras
+    and recover the true bearing.
+
+50. **How can front and rear never be swapped?** Each physical camera is a
+    `CameraChannel` bound to its role by device name; the role travels with
+    every frame and detection and decides the bearing formula. The Webots
+    check compares each camera's detections with that camera's own
+    Recognition node.
+
+51. **What does "R scaled by light level" mean (11.5)?** Camera bearing
+    variance R = R₀·(nominal brightness / mean)² and ∞ below a dark threshold,
+    so the Kalman gain of the camera shrinks smoothly as lights dim and the
+    update is skipped in the dark — de-weighting without a hard switch.
+
+52. **What is still unproven?** Everything physical: grip stability under
+    ODE contacts, real docking accuracy, success rate over ≥ 10 Webots runs,
+    camera evidence images. The offline kinematic simulator proves the logic
+    and geometry, not the physics.

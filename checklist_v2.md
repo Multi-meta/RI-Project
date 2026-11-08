@@ -104,11 +104,13 @@
 - [*] **11.4 [P0] Wire EKF into the robot** (replace GPS+IMU as operating pose; keep ground truth only for logging). Log `x_est, P diag, x_true, health` each step.
   *Done when:* robot completes the v1 mission using the **EKF pose**, with RMSE logged.
 - [ ] **11.5 [P0] Camera landmark/marker update (optional modality)** with R scaled by light level so that **lights-off** de-weights it automatically.
+  *Status (Ankit, 2026-11-08):* `EKFLocalizer.update_bearing` + `camera_bearing_variance` implemented and unit-tested; not wired (no camera landmark in the v1 world).
 - [*] **11.6 [P0] `obstacle_fusion.py` + tests:** per-sector inverse-variance fusion across LiDAR/IR/sonar (+tracks/comm data when available), `VERIFIED/UNVERIFIED/CONFLICT`, trust-weighted, outputs `ObstacleReport`. Safety stop and costmap consume it.
   *Done when:* tests: two agreeing sensors → VERIFIED; one dropout → still detected, UNVERIFIED; strong disagreement → CONFLICT + speed cap.
 - [ ] **11.7 [P0] Fault experiments (the "lights go off" demo):** scenarios **S3 lights-off**, **S4 LiDAR dropout**, **S4b GPS dropout**. For each: log which sensors were trusted, speed cap, and whether navigation continued safely; produce RMSE table **with vs without fusion** and a timeline plot of health/trust → `docs/evidence/fusion_results.md`, `fusion_timeline.png`.
 - [ ] **11.8 [P1] Tune Q/R** using ground-truth NEES; keep a tuning log (`docs/ekf_tuning.md`).
 - [ ] **11.9 [P1] Fusion in manipulation checks** (see 14.x): "box present"/"slot free" decisions combine force, width, palm IR, camera.
+  *Status (Ankit):* implemented in `gripper.assess` / `pick_place.py` (width + palm range + force|latch; release by palm range after back-off); offline-verified, Webots pending.
 - [*] **11.10 [P2] Map-matching/ICP scan-to-map update** as an extra localization source.
 - [*] **11.11 [P1]** Document fusion as: inverse-variance weights + gating + health + verification (not a "hard switch"). Add to `architecture.md` and `qa_prep.md` (derive Kalman gain, why gating, what NEES means).
 
@@ -171,8 +173,11 @@
 
 ## Phase 16 — Full mission integration & scenario suite [Tier 1]
 - [*] **16.1 [P0] Robot FSM v2** (§A11) with NAV sub-states, SAFE_STOP/DEGRADED overrides, STORE/RETRIEVE flows, full logging; unit tests with fake inputs for all transitions incl. failure paths.
+  *Status (Ankit):* manipulation states + failure paths added (`DOCK_PICK … VERIFY_DELIVERY`, `ARM_RECOVER`), 16 FSM tests; STORE flow only.
 - [ ] **16.2 [P0] Single-robot full mission (S1):** pile → pick → navigate → dock → place on assigned slot → confirm → report. *Done when:* ≥ 8/10 end-to-end successes (record real rate).
+  *Status (Ankit):* code complete; offline kinematic 10/10; Webots ≥ 8/10 still to be measured (`tools/run_scenario.py S1_store_P3_B --runs 10`).
 - [ ] **16.3 [P0] Retrieve mission (S2):** shelf slot → dispatch zone.
+  *Status (Ankit):* not implemented (building blocks reusable).
 - [ ] **16.4 [P0] Scenario suite (each scripted via the scenario runner, each with expected-outcome checks and log):**
   - S1 inbound store, nominal · S2 outbound retrieve
   - S3 lights-off mid-mission · S4 LiDAR dropout · S4b GPS dropout
@@ -181,22 +186,30 @@
   - S7 comm loss (multi-robot)
   - S8 stress: 3 robots, mixed STORE/RETRIEVE batch, moving obstacles, one fault
 - [*] **16.5 [P0] Mission report generator:** per robot and fleet: tasks done/failed, time, path length, replans (+reasons), collisions, min clearance, grasp/place stats, sensor-health events, EKF RMSE, throughput.
+  *Status (Ankit):* manipulation fields + `logs/mission_report*.json` + Supervisor ground-truth audit added.
 - [ ] **16.6 [P1] Reproducibility:** seeds, scenario JSON saved with each log, `tools/run_scenario.py` (CLI: scenario name → runs Webots in batch/fast mode, collects logs, runs analysis).
+  *Status (Ankit):* `tools/run_scenario.py` + env task overrides implemented (dry-run tested), Webots pending.
 - [ ] **16.7 [P1] Real-time/performance profiling;** fix hotspots (planning rate, tracker, DWA sampling, image processing resolution).
 
 ## Phase 17 — Dashboard, visualization, demo assets [Tier 2]
 - [*] **17.1 [P1] In-sim dashboard** (`Display` on Fleet Manager): map with robots, paths, tracks, costmap overlay toggle, inventory grid (slot occupancy), task queue, sensor health indicators, replan counter. Reuse `display`/`display_supervisor` sample patterns.
 - [*] **17.2 [P1]** Per-robot `Pen` trails + LED color = FSM state; clear on/off toggle.
+  *Status (Ankit):* LED colours added for the 8 manipulation states.
 - [ ] **17.3 [P1]** Analysis plots (auto-generated): EKF vs truth, health timeline, track velocities, trajectories per robot, throughput bars, grasp success breakdown.
+  *Status (Ankit):* `tools/plot_arm_workspace.py`, `tools/plot_manipulation.py` (offline figures in docs/evidence/; Webots figures pending).
 - [ ] **17.4 [P2]** Optional web dashboard (reads log stream; not required).
 - [ ] **17.5 [P0] ✂️ FEATURE FREEZE GATE.** Stop adding features. Remaining time → stabilization, evidence, docs. Record in `progress_log.md` which tiers were completed and which items were dropped (and why).
 
 ## Phase 18 — Evaluation & ablations (evidence for the final report) [P0]
 - [ ] **18.1 Experiment matrix** (`docs/experiments.md`): scenario × configuration × N runs × seeds. Configurations: **baseline v1** · +EKF fusion · +tracker/DWA · +rear safety · +multi-robot.
+  *Status (Ankit):* manipulation/docking/camera rows in `docs/experiments.md`.
 - [ ] **18.2 Run the matrix**; store raw logs under `logs/final/`.
 - [ ] **18.3 Analysis:** tables with mean ± std (and success counts) for all groups in addendum §A12; **ablation table** showing the value of each feature (e.g., RMSE with/without fusion under lights-off; collisions with/without tracker; throughput 1/2/3 robots).
+  *Status (Ankit):* `tools/analyze_manipulation.py` (all runs, sensor-vs-ground-truth agreement).
 - [ ] **18.4 Failure analysis:** list the real failure modes observed (grasp, docking, comms, perception, deadlock) with counts and mitigations. Honest limitations section.
+  *Status (Ankit):* taxonomy + offline-observed failures in `docs/experiments.md`; Webots data pending.
 - [ ] **18.5 Statistical sanity:** no cherry-picking; report all runs or state exclusion rules.
+  *Status (Ankit):* rules in `docs/experiments.md`.
 
 ## Phase 19 — Documentation, demo, viva readiness [P0]
 - [*] **19.1 Code quality:** docstrings, remove dead code, `pytest` green, `run_all_tests` script, lint pass, `requirements.txt` final, config documented.

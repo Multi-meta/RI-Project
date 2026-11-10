@@ -649,9 +649,16 @@ ARM_JOINT_MAX_VEL = (1.0, 1.2, 1.5)           # rad/s (Webots maxVelocity, also 
 ARM_JOINT_MAX_TORQUE = (25.0, 15.0, 6.0)      # N m  (Webots maxTorque)
 ARM_JOINT_MAX_ACC = 2.0                       # rad/s^2, quintic trajectory limit
 ARM_JOINT_TOL = 0.02                          # rad, "joint at target" tolerance
+ARM_JOINT_TOL_LOADED = 0.035                  # rad, accepted residual once the arm has STOPPED
+ARM_SETTLE_STILL_TIME = 0.3                   # s of no joint motion that counts as "stopped"
+ARM_SETTLE_STILL_TOL = 1e-3                   # rad, max joint drift inside that window
 ARM_TRACKING_ERROR_MAX = 0.25                 # rad, |q_cmd - q_meas| that counts as blocked
 ARM_TRACKING_FAULT_TIME = 0.4                 # s the error must persist -> fault
 ARM_MOTION_TIMEOUT_MARGIN = 3.0               # s added to every planned motion duration
+ARM_STEP_TIMEOUT_SLACK = 2.0                  # s, step deadline beyond the arm's own settle timeout
+ARM_STEP_TIMEOUT_DEFAULT = 15.0               # s, any step without an arm motion or own timeout
+ARM_SENSOR_WAIT_TIMEOUT = 2.0                 # s, max wait for valid joint encoders at start-up
+GRIPPER_STEP_TIMEOUT = 8.0                    # s, open/close step (gripper faults at travel time + 3 s)
 ARM_CART_STEP = 0.01                          # m, Cartesian line interpolation step
 ARM_CART_SPEED = 0.10                         # m/s, nominal TCP speed on straight lines
 
@@ -670,6 +677,8 @@ GRIPPER_FINGER_MAX_FORCE = 30.0               # N (Webots maxForce)
 GRIPPER_GRIP_FORCE = 12.0                     # N, available force while closing (force-limited)
 GRIPPER_POS_TOL = 0.003                       # m, finger "at target"
 GRIPPER_STALL_TIME = 0.4                      # s without finger motion = stalled on an object
+GRIPPER_STALL_WINDOW_TOL = 1e-3               # m, max finger travel inside the stall window
+GRIPPER_CONTACT_DONE_TIME = 0.15              # s of pad contact + stable width = closed on a parcel
 GRIPPER_WIDTH_TOL = 0.015                     # m, |width - PKG_SIZE| for "holding"
 GRIPPER_FORCE_MIN = 2.0                       # N, per-finger contact force for "holding"
 GRIPPER_PALM_RANGE_MAX = 0.50                 # m, palm range-finder max range

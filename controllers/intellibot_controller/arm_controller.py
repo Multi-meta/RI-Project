@@ -68,6 +68,9 @@ class ArmController:
         self._invalid_since = None
         self.motion_name = ""
         self.max_tracking_error = 0.0
+        self.settle_note = ""
+        self._q_hist = []           # [(t, q)] after the trajectory ended
+        self.last_diagnosis = []
 
     # ------------------------------------------------------------ queries
     def joints(self) -> Optional[Tuple[float, float, float]]:
@@ -99,6 +102,8 @@ class ArmController:
         self._invalid_since = None
         self.motion_name = name
         self.max_tracking_error = 0.0
+        self.settle_note = ""
+        self._q_hist = []
         return True, ""
 
     def move_joints(self, q_goal: Sequence[float], t: float, name="joint_move"):
@@ -223,14 +228,70 @@ class ArmController:
         if tau >= self.traj.T:
             if self.at(self.goal):
                 self.status = "DONE"
-            elif tau > self.traj.T + config.ARM_MOTION_TIMEOUT_MARGIN:
+                return self.status
+            # Under load (a latched parcel) or in light contact the position
+            # loop can stop a little short of the goal. Accept that ONLY when
+            # the arm has really stopped (no motion over ARM_SETTLE_STILL_TIME)
+            # and the residual is inside ARM_JOINT_TOL_LOADED; the sensor
+            # checks that follow every motion still verify the outcome.
+            self._q_hist.append((t, q))
+            while (len(self._q_hist) > 1
+                   and t - self._q_hist[1][0] >= config.ARM_SETTLE_STILL_TIME):
+                self._q_hist.pop(0)
+            if t - self._q_hist[0][0] >= config.ARM_SETTLE_STILL_TIME:
+                drift = max(max(h[1][j] for h in self._q_hist) - min(h[1][j] for h in self._q_hist)
+                            for j in range(3))
+                resid = max(abs(a - b) for a, b in zip(q, self.goal))
+                if drift < config.ARM_SETTLE_STILL_TOL and resid <= config.ARM_JOINT_TOL_LOADED:
+                    self.settle_note = f"settled {resid:.3f} rad from goal (stopped)"
+                    self.log(f"[ARM] {self.motion_name}: {self.settle_note}")
+                    self.status = "DONE"
+                    return self.status
+            if tau > self.traj.T + config.ARM_MOTION_TIMEOUT_MARGIN:
                 return self._set_fault("SETTLE_TIMEOUT")
         return self.status
+
+    def diagnose(self):
+        """Per-joint table for fault reports: target, measured, error, torque,
+        distance to the joint limits. Returns a list of dicts (also logged)."""
+        q = self.driver.read_joints()
+        torques = None
+        if hasattr(self.driver, "read_torques"):
+            try:
+                torques = self.driver.read_torques()
+            except Exception:
+                torques = None
+        rows = []
+        names = ("shoulder", "elbow", "wrist")
+        for j in range(3):
+            meas = q[j] if q is not None and j < len(q) else math.nan
+            tgt = self.goal[j] if self.goal is not None else math.nan
+            lo, hi = config.ARM_JOINT_LIMITS_RAD[j]
+            tq = torques[j] if torques is not None and j < len(torques) else math.nan
+            rows.append(dict(joint=names[j], target=tgt, measured=meas,
+                             error=(tgt - meas) if math.isfinite(meas) else math.nan,
+                             torque=tq, max_torque=config.ARM_JOINT_MAX_TORQUE[j],
+                             torque_saturated=(math.isfinite(tq) and
+                                               abs(tq) >= 0.95 * config.ARM_JOINT_MAX_TORQUE[j]),
+                             near_limit=(math.isfinite(meas) and
+                                         min(meas - lo, hi - meas) < 0.05)))
+        self.last_diagnosis = rows
+        for r in rows:
+            self.log(f"[ARM]   {r['joint']:8s} target={r['target']:+.3f} "
+                     f"measured={r['measured']:+.3f} err={r['error']:+.3f} rad "
+                     f"torque={r['torque']:.2f}/{r['max_torque']:.0f} Nm"
+                     f"{' SATURATED' if r['torque_saturated'] else ''}"
+                     f"{' NEAR_LIMIT' if r['near_limit'] else ''}")
+        return rows
 
     def _set_fault(self, reason):
         self.status = "FAULT"
         self.fault = f"{self.motion_name}: {reason}"
         self.log(f"[ARM] FAULT {self.fault}")
+        try:
+            self.diagnose()
+        except Exception as exc:                      # diagnostics must never crash
+            self.log(f"[ARM]   diagnosis unavailable: {exc}")
         self.hold()
         self.status = "FAULT"
         return self.status

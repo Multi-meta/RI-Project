@@ -29,9 +29,15 @@ import config
 
 
 class Step:
-    """start(t) -> (ok, reason); poll(t) -> 'RUNNING' | 'DONE' | ('FAILED', reason)."""
+    """start(t) -> (ok, reason); poll(t) -> 'RUNNING' | 'DONE' | ('FAILED', reason).
 
-    def __init__(self, name, start, poll, timeout=60.0):
+    timeout : seconds, or None for arm motions — then the deadline is the
+              planned trajectory duration + ARM_MOTION_TIMEOUT_MARGIN +
+              ARM_STEP_TIMEOUT_SLACK, computed when the motion starts (a
+              fixed 60 s used to make a stuck step look like a frozen robot).
+    """
+
+    def __init__(self, name, start, poll, timeout=None):
         self.name = name
         self.start = start
         self.poll = poll
@@ -50,6 +56,7 @@ class PickPlaceController:
         self.i = 0
         self.t_step = 0.0
         self.history = []            # [(t, operation, step, result)]
+        self.step_timeout = 0.0
         self.last_assessment = None
         self.last_check = {}
 
@@ -73,9 +80,20 @@ class PickPlaceController:
             return
         step = self.steps[self.i]
         self.t_step = t
-        ok, reason = step.start(t)
+        try:
+            ok, reason = step.start(t)
+        except Exception as exc:          # never let a step crash the controller
+            ok, reason = False, f"EXCEPTION {type(exc).__name__}: {exc}"
         if not ok:
             self._fail(step.name, reason, t)
+            return
+        if step.timeout is not None:
+            self.step_timeout = float(step.timeout)
+        elif self.arm.traj is not None and self.arm.status == "MOVING":
+            self.step_timeout = (self.arm.traj.T + config.ARM_MOTION_TIMEOUT_MARGIN
+                                 + config.ARM_STEP_TIMEOUT_SLACK)
+        else:
+            self.step_timeout = config.ARM_STEP_TIMEOUT_DEFAULT
 
     def _fail(self, step, reason, t):
         self.status = "FAILED"
@@ -92,13 +110,19 @@ class PickPlaceController:
         """Advance the running operation by one control step."""
         if self.status != "RUNNING":
             return self.status
+        # ONE update of the arm and gripper per control step; the step polls
+        # only read their status (they used to call arm.update() a second time)
         self.arm.update(t)
         self.gripper.update(t)
         step = self.steps[self.i]
-        res = step.poll(t)
+        try:
+            res = step.poll(t)
+        except Exception as exc:
+            res = ("FAILED", f"EXCEPTION {type(exc).__name__}: {exc}")
         if res == "RUNNING":
-            if t - self.t_step > step.timeout:
-                self._fail(step.name, f"TIMEOUT after {step.timeout:.0f} s", t)
+            if t - self.t_step > self.step_timeout:
+                self.arm.hold()
+                self._fail(step.name, f"TIMEOUT after {self.step_timeout:.1f} s", t)
             return self.status
         if isinstance(res, tuple):
             self._fail(step.name, res[1], t)
@@ -110,7 +134,7 @@ class PickPlaceController:
 
     # ------------------------------------------------------- step factory
     def _arm_poll(self, t):
-        st = self.arm.update(t)
+        st = self.arm.status            # updated once per step in update()
         if st == "DONE":
             return "DONE"
         if st == "FAULT":
@@ -150,7 +174,7 @@ class PickPlaceController:
             if st == "FAULT":
                 return ("FAILED", self.gripper.fault)
             return "RUNNING"
-        return Step(name, start, poll, timeout=10.0)
+        return Step(name, start, poll, timeout=config.GRIPPER_STEP_TIMEOUT)
 
     def _wait(self, name, duration):
         t0 = {}
@@ -245,6 +269,24 @@ class PickPlaceController:
             return False, "PARCEL_NOT_IN_SLOT", details
         return True, "", details
 
+    def _tcp_or_fail(self):
+        tcp = self.arm.tcp()
+        if tcp is None:
+            raise RuntimeError("INVALID_JOINT_SENSOR (no TCP estimate)")
+        return tcp
+
+    def _line_or_joint(self, name, target_fn):
+        """Straight line if the IK path exists, otherwise a joint-space move
+        (recovery must always be able to bring the arm home)."""
+        def start(t):
+            x, z = target_fn()
+            ok, reason = self.arm.move_line(x, z, t, name=name)
+            if ok:
+                return ok, ""
+            self.log(f"[MANIP] {name}: line not feasible ({reason}) — joint-space move")
+            return self.arm.move_to_tcp(x, z, t, name=name)
+        return Step(name, start, self._arm_poll)
+
     # ------------------------------------------------------------ operations
     def start_pick(self, t, grasp):
         """grasp: {'x', 'z'} parcel-centre TCP target in the robot frame."""
@@ -265,7 +307,7 @@ class PickPlaceController:
 
     def start_verify_attachment(self, t):
         def transit_target():
-            x, z = self.arm.tcp()
+            x, z = self._tcp_or_fail()
             return x, max(z, config.ARM_SAFE_TRANSIT_Z)
         steps = [
             self._wait("SETTLE", 0.3),
@@ -317,18 +359,31 @@ class PickPlaceController:
             return min(x, rx), z
 
         def raise_target():
-            x, z = self.arm.tcp()
+            x, z = self._tcp_or_fail()
             return x, max(z, config.ARM_SAFE_TRANSIT_Z)
         steps = []
         if not keep_parcel:
             steps += [self._unlatch(), self._gripper("OPEN_GRIPPER", opening=True)]
         steps += [self._line("RETREAT", retreat_target),
                   self._line("RAISE", raise_target),
-                  self._line("STOW", lambda: config.ARM_STOW_TCP)]
+                  self._line_or_joint("STOW", lambda: config.ARM_STOW_TCP)]
         self._begin("recover", steps, t)
 
+    def _wait_sensors(self):
+        """Joint encoders are NaN until their first sampling period: wait for
+        them (bounded) instead of failing the very first command."""
+        def start(t):
+            return True, ""
+
+        def poll(t):
+            if self.arm.joints() is not None:
+                return "DONE"
+            return "RUNNING"
+        return Step("WAIT_SENSORS", start, poll, timeout=config.ARM_SENSOR_WAIT_TIMEOUT)
+
     def start_stow(self, t):
-        self._begin("stow", [self._joint_to_tcp("STOW", *config.ARM_STOW_TCP)], t)
+        self._begin("stow", [self._wait_sensors(),
+                             self._joint_to_tcp("STOW", *config.ARM_STOW_TCP)], t)
 
 
 def build_manipulator(driver, log=print):

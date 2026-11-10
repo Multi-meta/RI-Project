@@ -14,6 +14,7 @@ Driver interface (all units SI, joint angles in config convention):
     command_fingers(pos, force=None)        same travel for both fingers
     read_finger_forces() -> (left, right)   N, contact force on the pads
     read_palm_range()    -> metres          palm range-finder (NaN if invalid)
+    read_torques()       -> [t1, t2, t3]    optional, motor torque feedback (diagnosis)
     latch_presence()     -> 1 / 0 / -1      Connector.getPresence()
     latch_lock(), latch_unlock(), latch_is_locked()
 
@@ -56,6 +57,12 @@ class WebotsArmDriver:
             m.setAvailableForce(config.GRIPPER_GRIP_FORCE)
         for s in self.joint_sensors + self.finger_sensors + self.finger_touch:
             s.enable(self.dt)
+        # torque feedback = fault diagnosis only (is a joint saturating?)
+        for m in self.joint_motors:
+            try:
+                m.enableTorqueFeedback(self.dt)
+            except Exception:
+                pass
         self.palm_range.enable(self.dt)
         self.latch.enablePresence(self.dt)
 
@@ -84,6 +91,17 @@ class WebotsArmDriver:
     def command_joints(self, q):
         for m, v in zip(self.joint_motors, q):
             m.setPosition(float(v))
+
+    def read_torques(self):
+        """Motor torque feedback (N m), NaN when unavailable."""
+        out = []
+        for m in self.joint_motors:
+            try:
+                v = float(m.getTorqueFeedback())
+            except Exception:
+                v = math.nan
+            out.append(v if math.isfinite(v) else math.nan)
+        return out
 
     # --------------------------------------------------------------- fingers
     def read_fingers(self):

@@ -174,6 +174,15 @@ class SpeedGovernor:
                 w_out = w_t
             wl = config.SAFETY_W_ACCEL * dt
             w_out = self.w_prev + max(-wl, min(wl, w_out - self.w_prev))
+        # never ask for more than the wheels can do: scale (v, w) together so
+        # |v| + |w| L/2 stays inside SAFETY_WHEEL_HEADROOM of the motor limit
+        # (inverse_kinematics would clamp too, but then the ramp state above
+        # would no longer match what the robot actually does)
+        v_wheel_max = config.SAFETY_WHEEL_HEADROOM * config.MAX_WHEEL_SPEED * config.WHEEL_RADIUS
+        need = abs(v_out) + abs(w_out) * config.WHEEL_SEPARATION / 2.0
+        if need > v_wheel_max > 0.0:
+            k = v_wheel_max / need
+            v_out, w_out = v_out * k, w_out * k
         if mode == "NAV" and math.isfinite(clearance) and clearance < config.SAFETY_NEAR_MISS:
             self.near_misses += 1
         self.v_prev, self.w_prev = v_out, w_out

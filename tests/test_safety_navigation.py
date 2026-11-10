@@ -87,10 +87,10 @@ def test_governor_caps_speed_by_clearance_and_preserves_curvature():
 
 def test_governor_acceleration_and_emergency():
     gov = SpeedGovernor(enabled=True)
-    v, _ = gov.limit(0.45, 0.0, 0.032, None, None)
+    v, _ = gov.limit(config.V_CRUISE, 0.0, 0.032, None, None)
     assert v == pytest.approx(config.SAFETY_ACCEL * 0.032)
     for _ in range(100):
-        v, _ = gov.limit(0.45, 0.0, 0.032, None, None)
+        v, _ = gov.limit(config.V_CRUISE, 0.0, 0.032, None, None)
     assert v == pytest.approx(config.V_CRUISE)
     close = scan_boxes((0, 0, 0), [(config.ROBOT_FRONT_EXTENT + 0.05, 0.5, -0.1, 0.1)])
     v, w = gov.limit(0.45, 0.3, 0.032, close, ANGLES)
@@ -404,3 +404,29 @@ def test_follower_can_turn_away_from_a_wall_it_faces():
     f2 = WaypointFollower([(0.0, 1.5)])
     f2.update(pose, tight, ANGLES)
     assert f2.status == "BLOCKED"
+
+
+def test_tuned_speeds_stay_inside_safety_limits():
+    """+10-15 % speed tuning: still stoppable, no wheel saturation, governor
+    and obstacle slowdown intact."""
+    from kinematics import inverse_kinematics
+    assert 0.48 <= config.V_CRUISE <= 0.52 and 1.6 <= config.W_MAX <= 1.75
+    v_wheel = config.MAX_WHEEL_SPEED * config.WHEEL_RADIUS
+    assert config.V_CRUISE < v_wheel and config.V_CARRY < config.V_CRUISE
+    # stopping distance at cruise is shorter than the LiDAR sees and than the
+    # route look-ahead used for replanning
+    assert stopping_distance(config.V_CRUISE) < config.REPLAN_LOOKAHEAD
+    assert config.SAFETY_BRAKE_DECEL == 0.8                 # braking assumption unchanged
+    gov = SpeedGovernor(enabled=True)
+    for _ in range(200):
+        v, w = gov.limit(config.V_CRUISE, config.W_MAX, 0.032, None, None)
+    wl, wr = inverse_kinematics(v, w)
+    assert max(abs(wl), abs(wr)) <= config.MAX_WHEEL_SPEED * config.SAFETY_WHEEL_HEADROOM + 1e-6
+    assert w / v == pytest.approx(config.W_MAX / config.V_CRUISE, rel=1e-3)   # same arc
+    # still slows for an obstacle ahead
+    scan = scan_boxes((0, 0, 0), [(0.40, 0.6, -0.1, 0.1)])
+    clr = corridor_clearance(scan, ANGLES)
+    for _ in range(200):
+        v, _ = gov.limit(config.V_CRUISE, 0.0, 0.032, scan, ANGLES)
+    assert v == pytest.approx(clearance_speed(clr), rel=1e-3) and v < config.V_CRUISE
+    assert stopping_distance(v) <= clr + 1e-9

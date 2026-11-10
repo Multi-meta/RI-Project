@@ -180,7 +180,7 @@ ASTAR_TIE_EPS = 1e-6                          # heuristic tie-break weight
 
 # ---------------------------------------------------------------- 6. Control ---
 V_MAX = 0.30                                  # m/s cruise limit
-W_MAX = 1.5                                   # rad/s turn limit
+W_MAX = 1.7                                   # rad/s turn limit (was 1.5; also the heading-PID output limit)
 WP_TOLERANCE = 0.10                           # m, intermediate waypoint
 GOAL_TOLERANCE = 0.15                         # m, final waypoint
 SLOWDOWN_DIST = 0.50                          # m, begin slowing near waypoint
@@ -220,14 +220,15 @@ RECOVERY_ROTATE_CLEAR = 0.08                  # m, min clearance around the body
 
 # --- safety.SpeedGovernor (dynamic speed limit; docs/ankit_implementation_report.md)
 SPEED_GOVERNOR_ENABLED = True                 # False = legacy fixed V_MAX (ablation)
-V_CRUISE = 0.45                               # m/s, governed cruise (was a fixed 0.30)
-V_CARRY = 0.35                                # m/s, cap while a parcel is latched on the arm
+V_CRUISE = 0.50                               # m/s, governed cruise (was 0.45; fixed 0.30 before the governor)
+V_CARRY = 0.39                                # m/s, cap while a parcel is latched on the arm (was 0.35)
 V_APPROACH_MIN = 0.10                         # m/s, floor of the goal-approach ramp
 SAFETY_APPROACH_DIST = 0.80                   # m, start of the goal-approach ramp
 V_DEGRADED = 0.12                             # m/s, cap with degraded LiDAR / localisation
 SAFETY_BRAKE_DECEL = 0.8                      # m/s^2, assumed braking deceleration (conservative)
-SAFETY_ACCEL = 0.6                            # m/s^2, comfort acceleration
-SAFETY_W_ACCEL = 6.0                          # rad/s^2, yaw-rate ramp
+SAFETY_ACCEL = 0.68                           # m/s^2, comfort acceleration (was 0.6)
+SAFETY_W_ACCEL = 6.8                          # rad/s^2, yaw-rate ramp (was 6.0)
+SAFETY_WHEEL_HEADROOM = 0.95                  # (v, w) kept inside 95 % of the wheel-speed limit
 SAFETY_REACTION_TIME = 0.10                   # s, sensing + control latency
 SAFETY_STOP_MARGIN = 0.10                       # m, clearance kept after braking (emergency below)
 SAFETY_LATERAL_MARGIN = 0.05                  # m, corridor half width = BODY_WIDTH/2 + this

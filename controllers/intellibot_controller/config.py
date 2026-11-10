@@ -450,6 +450,17 @@ EKF_GATE_IMU = 6.63                               # Chi-square 1 DOF @ 99%
 EKF_GATE_LANDMARK = 9.21                          # Chi-square 2 DOF @ 99%
 EKF_R_CAMERA_BEARING = (2 * math.pi / 180) ** 2   # camera marker bearing (lit), rad^2
 
+# --- localization.LocalizationManager (the pose navigation uses) ---------
+LOCALIZATION_MODE = "ekf"                         # ekf | odom | gps (ablation)
+EKF_Q_BASE = [0.0005**2, 0.0005**2, (0.05*math.pi/180)**2]   # per-step floor (wheel slip, timing)
+EKF_MOTION_NOISE = (0.10**2, 0.10**2, 0.05**2)    # a1 (ds^2->xy), a2 (dth^2->th), a3 (ds^2->th)
+LOC_P0 = [0.05**2, 0.05**2, (3*math.pi/180)**2]   # covariance at (re)initialisation
+LOC_GPS_STALE_TIME = 0.5                          # s without a valid fix -> GPS FAILED
+LOC_IMU_STALE_TIME = 0.5                          # s
+EKF_KIDNAP_TIME = 0.5                             # s of continuous GPS rejection -> relocalise
+EKF_KIDNAP_MAX_SPREAD = 0.30                      # m, rejected fixes must agree (not a glitch)
+LOC_SIGMA_HEALTHY = 0.25                          # m, max position sigma for "healthy"
+
 # ---------------------------------------------------------------- Tracking & Fusion ---
 TRACKER_CLUSTER_DISTANCE = 0.5                     # m
 TRACKER_GATE_THRESHOLD = 4.0                       # Chi-square 2 DOF

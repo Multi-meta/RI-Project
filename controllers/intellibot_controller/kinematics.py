@@ -62,6 +62,8 @@ class Odometry:
         self.x, self.y, self.theta = x, y, theta
         self._prev_left = None
         self._prev_right = None
+        self.last_ds = 0.0          # SIGNED arc length of the last applied step (m)
+        self.last_dtheta = 0.0      # heading change of the last applied step (rad)
 
     def reset(self, x=0.0, y=0.0, theta=0.0):
         self.__init__(x, y, theta)
@@ -71,9 +73,11 @@ class Odometry:
         if phi_left is None or phi_right is None:
             return False
         if math.isnan(phi_left) or math.isnan(phi_right):
+            self.last_ds = self.last_dtheta = 0.0
             return False                      # first Webots step may be NaN
         if self._prev_left is None:           # establish reference, no motion
             self._prev_left, self._prev_right = phi_left, phi_right
+            self.last_ds = self.last_dtheta = 0.0
             return False
         r, L = _params()
         dsl = r * (phi_left - self._prev_left)
@@ -81,6 +85,7 @@ class Odometry:
         self._prev_left, self._prev_right = phi_left, phi_right
         ds = (dsl + dsr) / 2.0
         dtheta = (dsr - dsl) / L
+        self.last_ds, self.last_dtheta = ds, dtheta
         self.x += ds * math.cos(self.theta + dtheta / 2.0)
         self.y += ds * math.sin(self.theta + dtheta / 2.0)
         self.theta = wrap_to_pi(self.theta + dtheta)

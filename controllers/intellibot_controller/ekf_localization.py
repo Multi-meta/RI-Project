@@ -33,6 +33,7 @@ class EKFLocalizer:
         self.P = P0.copy()
         self.Q = Q.copy()
         
+        self.verbose = True             # print gate rejections (LocalizationManager logs its own)
         # Statistics
         self.innovation_history = []
         self.nis_history = []
@@ -96,7 +97,8 @@ class EKFLocalizer:
         
         # Gating
         if nis > gate_threshold:
-            print(f"GPS update REJECTED: NIS={nis:.2f} > {gate_threshold:.2f}")
+            if self.verbose:
+                print(f"GPS update REJECTED: NIS={nis:.2f} > {gate_threshold:.2f}")
             return False
             
         # Kalman gain
@@ -141,7 +143,8 @@ class EKFLocalizer:
         
         # Gating
         if nis > gate_threshold:
-            print(f"IMU update REJECTED: NIS={nis:.2f} > {gate_threshold:.2f}")
+            if self.verbose:
+                print(f"IMU update REJECTED: NIS={nis:.2f} > {gate_threshold:.2f}")
             return False
             
         # Kalman gain

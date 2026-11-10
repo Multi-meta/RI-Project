@@ -1,9 +1,22 @@
 """decision_maker.py — the mission FSM (pure logic, no Webots).
 
-States:
+States (robot WITHOUT an arm — legacy placeholder pickup, kept for old worlds
+and the original unit tests):
     IDLE -> FIND_PACKAGE -> NAVIGATE -> PICK -> PLAN_DELIVERY -> DELIVER
          -> RETURN_TO_CENTER -> AWAIT_INPUT -> IDLE  (continuous interactive loop)
          -> DONE (only when INTERACTIVE_MODE = False), ERROR as terminal failure.
+
+States with the mobile manipulator (a PickPlaceController is injected):
+    IDLE -> ARM_STOW -> FIND_PACKAGE -> NAVIGATE -> DOCK_PICK -> ARM_PICK
+         -> VERIFY_ATTACHMENT -> PLAN_DELIVERY -> DELIVER -> DOCK_PLACE
+         -> ARM_PLACE -> VERIFY_DELIVERY -> DONE / RETURN_TO_CENTER
+    failures: ARM_RECOVER (arm back to stow, then retry or ERROR)
+    * the base is commanded (0, 0) in every ARM_* / VERIFY_* state and the
+      arm only moves while the base is stopped — they never move together;
+    * carrying becomes True only after VERIFY_ATTACHMENT confirms the parcel
+      with sensors, and False once the latch is released on the shelf;
+    * DONE requires VERIFY_DELIVERY (palm range-finder sees the parcel in the
+      slot after the gripper backed away, latch open, fingers open).
 
 Testability: the FSM receives injected callables, so unit tests run it with
 fake planners/estimators and a simulated unicycle — no Webots required.
@@ -41,6 +54,8 @@ import threading
 import config
 from waypoint_follower import WaypointFollower
 from logger import transition
+import shelving
+from docking import Docker
 
 
 # --------------------------------------------------------------------- helpers
@@ -96,8 +111,23 @@ def _safe_approach_pose(px, py, rx, ry, approach_dist, grid):
 
 class DecisionMaker:
     def __init__(self, planner, estimator, grid=None, log=transition,
-                 input_callback=None):
+                 input_callback=None, manipulator=None, kinematics=None):
         self.planner = planner          # callable -> (waypoints, info)
+        # Mobile manipulator (pick_place.PickPlaceController) — None = legacy
+        # placeholder pickup (no arm in the world).
+        self.manip = manipulator
+        self.kin = kinematics           # arm_kinematics.PlanarPitchArm (reach checks)
+        self.occupancy = shelving.RackOccupancy()
+        self.docker = None
+        self.target_slot = None
+        self.place_targets = None
+        self.grasp_attempts = 0
+        self.place_attempts = 0
+        self.failure_reason = None
+        self.delivery_verified = False
+        self.dock_log = []              # per docking: name, range, lateral, heading
+        self._after_recover = None
+        self._recover_reason = None
         self.estimator = estimator      # callable -> (x, y, phi, d) | None
         self.grid = grid                # OccupancyGrid for dynamic obstacles
         self.log = log
@@ -149,9 +179,32 @@ class DecisionMaker:
         self.pkg_pos = None
         self.carrying = False
         self._pkg_seen = {}
+        self.docker = None
+        self.target_slot = None
+        self.place_targets = None
+        self.grasp_attempts = 0
+        self.place_attempts = 0
+        self.failure_reason = None
+        self.delivery_verified = False
+        self.dock_log = []
         self.log(f"[t={sim_time:.1f}s] Task: pick {config.TASK_PACKAGE} "
                  f"({config.TASK_PACKAGE_COLOR}), deliver to Zone {config.TASK_ZONE}")
+        if self.manip is not None:
+            # make sure the arm is stowed (known pose, inside the footprint)
+            # before the base moves at all
+            self.manip.start_stow(sim_time)
+            self._set_state("ARM_STOW", sim_time)
+            return 0.0, 0.0
         self._set_state("FIND_PACKAGE", sim_time)
+        return 0.0, 0.0
+
+    def _do_arm_stow(self, pose, scan, angles, detections, sim_time, dt):
+        st = self.manip.update(sim_time)
+        if st == "SUCCEEDED":
+            self._set_state("FIND_PACKAGE", sim_time)
+        elif st == "FAILED":
+            self._mission_failed(f"ARM_NOT_READY: {self.manip.reason}", sim_time,
+                                 recover=False)
         return 0.0, 0.0
 
     def _do_find_package(self, pose, scan, angles, detections, sim_time, dt):
@@ -251,16 +304,13 @@ class DecisionMaker:
         if dist_to_approach < 0.28:
             self.follower = None
             self._blocked_start_time = None
-            self.pick_deadline = sim_time + config.PICK_PAUSE_S
-            self._set_state("PICK", sim_time)
-            return 0.0, 0.0
+            return self._arrived_at_parcel(sim_time)
 
         v, w = self.follower.update(pose, scan, angles)
         if self.follower.status == "REACHED":
             self.follower = None
             self._blocked_start_time = None
-            self.pick_deadline = sim_time + config.PICK_PAUSE_S
-            self._set_state("PICK", sim_time)
+            return self._arrived_at_parcel(sim_time)
         elif self.follower.status == "BLOCKED":
             return self._handle_blocked(pose, scan, angles, self.approach_pose, sim_time)
         else:
@@ -295,9 +345,18 @@ class DecisionMaker:
 
             elapsed = sim_time - self._blocked_start_time
             if elapsed < yield_time:
-                from mapping import front_min_range
+                from mapping import front_min_range, obstacle_in_sector
                 if scan is not None and angles is not None:
-                    front_d = front_min_range(scan, angles, config.FRONT_CONE)
+                    # check clearance in the direction the follower was
+                    # driving: it may have been REVERSING (bidirectional
+                    # steering); checking only the front made a blocked
+                    # reverse move loop forever between "yield" and "cleared"
+                    if self.follower is not None and getattr(self.follower, "reversing", False):
+                        front_d = obstacle_in_sector(scan, angles,
+                                                     math.pi - config.FRONT_CONE,
+                                                     -math.pi + config.FRONT_CONE)
+                    else:
+                        front_d = front_min_range(scan, angles, config.FRONT_CONE)
                     if front_d > (config.STOP_DIST + 0.12):
                         self.log(f"[t={sim_time:.1f}s] Obstacle cleared path after {elapsed:.1f}s — resuming shortest path.")
                         self._blocked_start_time = None
@@ -330,7 +389,11 @@ class DecisionMaker:
                 self.follower.status = "REACHED"
             return 0.0, 0.0
 
+        wp_idx = self.follower.idx if self.follower else 0
         self.log(f"[t={sim_time:.1f}s] OBSTACLE DETECTED at ({ox:.2f}, {oy:.2f}) distance {d_min:.2f} m")
+        # restored Phase 12.1 trace line (dropped in "phase 14 + 15"; the
+        # replanning test and the demo script grep for it)
+        self.log(f"[t={sim_time:.1f}s] Current path BLOCKED at waypoint {wp_idx}")
         self.grid.add_obstacle_world(ox, oy, radius=0.12)
         r_row, r_col = self.grid.world_to_cell(pose[0], pose[1])
         if self.grid.in_bounds(r_row, r_col):
@@ -352,7 +415,17 @@ class DecisionMaker:
             self._set_state("ERROR", sim_time)
             return 0.0, 0.0
 
+    def _arrived_at_parcel(self, sim_time):
+        """End of NAVIGATE: dock for a real pick, or the legacy placeholder."""
+        if self.manip is not None:
+            self._start_dock_pick(sim_time)
+            return 0.0, 0.0
+        self.pick_deadline = sim_time + config.PICK_PAUSE_S
+        self._set_state("PICK", sim_time)
+        return 0.0, 0.0
+
     def _do_pick(self, pose, scan, angles, detections, sim_time, dt):
+        """LEGACY placeholder (no arm in the world): no physical pickup."""
         if sim_time >= self.pick_deadline:
             px, py = self.pkg_pos
             d = math.hypot(pose[0] - px, pose[1] - py)
@@ -362,8 +435,24 @@ class DecisionMaker:
             self._set_state("PLAN_DELIVERY", sim_time)
         return 0.0, 0.0
 
+    def _delivery_goal(self):
+        """Navigation goal of DELIVER: zone centre (legacy) or slot pre-dock pose."""
+        if self.manip is not None and self.target_slot is not None:
+            gx, gy, _ = shelving.predock_pose(shelving.dock_line_for_slot(self.target_slot))
+            return gx, gy
+        return config.ZONE_OF[config.TASK_ZONE]
+
     def _do_plan_delivery(self, pose, scan, angles, detections, sim_time, dt):
-        goal = config.ZONE_OF[config.TASK_ZONE]
+        if self.manip is not None:
+            self.target_slot = self.occupancy.next_free(config.TASK_ZONE)
+            if self.target_slot is None:
+                return self._mission_failed(
+                    f"NO_FREE_SLOT on the Zone {config.TASK_ZONE} rack", sim_time,
+                    recover=False)
+            self.log(f"[t={sim_time:.1f}s] Destination: shelf slot "
+                     f"{self.target_slot.slot_id} (Zone {config.TASK_ZONE} rack, "
+                     f"level {self.target_slot.level}, bay {self.target_slot.bay})")
+        goal = self._delivery_goal()
         wps, info = self.planner((pose[0], pose[1]), goal)
         self.last_info = info
         if wps is None:
@@ -381,6 +470,13 @@ class DecisionMaker:
 
     def _do_deliver(self, pose, scan, angles, detections, sim_time, dt):
         v, w = self.follower.update(pose, scan, angles)
+        if self.follower.status == "REACHED" and self.manip is not None:
+            self.follower = None
+            self._blocked_start_time = None
+            self.docker = Docker(shelving.dock_line_for_slot(self.target_slot),
+                                 log=self._dlog, name="DOCK_PLACE")
+            self._set_state("DOCK_PLACE", sim_time)
+            return 0.0, 0.0
         if self.follower.status == "REACHED":
             self.follower = None
             self.carrying = False
@@ -394,7 +490,7 @@ class DecisionMaker:
                 self._set_state("DONE", sim_time)
         elif self.follower.status == "BLOCKED":
             self.log(f"[t={sim_time:.1f}s] BLOCKED during DELIVER (LiDAR safety stop)")
-            goal = config.ZONE_OF[config.TASK_ZONE]
+            goal = self._delivery_goal()
             return self._handle_blocked(pose, scan, angles, goal, sim_time)
         return v, w
 
@@ -648,11 +744,256 @@ class DecisionMaker:
             "replans": self.replans,
             "collisions": "N/A (bumper in final eval)",
         }
+        if self.manip is not None:
+            self.mission_report.update({
+                "pick_mode": "arm (latched parallel gripper)",
+                "result": "DELIVERED" if self.delivery_verified else "FAILED",
+                "package": config.TASK_PACKAGE,
+                "zone": config.TASK_ZONE,
+                "slot": self.target_slot.slot_id if self.target_slot else None,
+                "grasp_attempts": self.grasp_attempts,
+                "place_attempts": self.place_attempts,
+                "delivery_verified_by_sensors": self.delivery_verified,
+                "failure_reason": self.failure_reason,
+                "docking": list(self.dock_log),
+                "manipulation_checks": dict(self.manip.last_check),
+            })
+        else:
+            self.mission_report["pick_mode"] = "placeholder (no arm in this world)"
         self.log(f"[t={sim_time:.1f}s] MISSION REPORT: "
                  f"time={self.mission_report['time_s']:.1f}s, "
                  f"path_length={self.mission_report['path_length_m']:.2f} m, "
                  f"replans={self.mission_report['replans']}, "
                  f"collisions={self.mission_report['collisions']}")
+        if self.manip is not None:
+            r = self.mission_report
+            self.log(f"[t={sim_time:.1f}s] MANIPULATION: result={r['result']}, "
+                     f"slot={r['slot']}, grasp_attempts={r['grasp_attempts']}, "
+                     f"place_attempts={r['place_attempts']}, "
+                     f"verified_by_sensors={r['delivery_verified_by_sensors']}, "
+                     f"failure={r['failure_reason']}")
+
+    # ======================================================= manipulation
+    def _dlog(self, msg):
+        self.log(msg)
+
+    def _record_dock(self, docker):
+        self.dock_log.append({
+            "name": docker.name, "status": docker.status, "reason": docker.reason,
+            "range_m": None if docker.measured_range is None else round(docker.measured_range, 4),
+            "range_source": docker.range_source,
+            "lateral_err_m": (None if docker.final_lateral_error is None
+                              else round(docker.final_lateral_error, 4)),
+            "heading_err_deg": (None if docker.final_heading_error is None
+                                else round(math.degrees(docker.final_heading_error), 2)),
+        })
+
+    def _start_dock_pick(self, sim_time):
+        # grasp the face that looks towards the planned approach pose (the
+        # open aisle), not whichever face the robot happens to see first
+        preferred = None
+        if self.approach_pose is not None and self.pkg_pos is not None:
+            preferred = math.atan2(self.pkg_pos[1] - self.approach_pose[1],
+                                   self.pkg_pos[0] - self.approach_pose[0])
+        self.docker = Docker(None, parcel_estimate=self.pkg_pos,
+                             preferred_heading=preferred, log=self._dlog,
+                             name="DOCK_PICK")
+        self._set_state("DOCK_PICK", sim_time)
+
+    def _reachable(self, targets):
+        """All (x, z) TCP targets inside the arm workspace and joint limits?"""
+        if self.kin is None:
+            return True, ""
+        for x, z in targets:
+            q, reason = self.kin.solve(x, z, 0.0, elbow_up=True)
+            if q is None:
+                return False, f"({x:.3f}, {z:.3f}) {reason}"
+        return True, ""
+
+    def _do_dock_pick(self, pose, scan, angles, detections, sim_time, dt):
+        v, w = self.docker.update(pose, scan, angles, sim_time)
+        if self.docker.status == "RUNNING":
+            return v, w
+        self._record_dock(self.docker)
+        if self.docker.status == "FAILED":
+            return self._pick_failed(f"DOCK_PICK {self.docker.reason}", sim_time,
+                                     arm_moved=False)
+        if getattr(self.docker, "refined_center", None) is not None:
+            self.pkg_pos = self.docker.refined_center
+        grasp = shelving.pick_tcp_for_parcel(self.docker.measured_range)
+        ok, why = self._reachable([
+            (grasp["x"], grasp["z"]),
+            (grasp["x"] - config.ARM_PREGRASP_BACKOFF, grasp["z"]),
+            (grasp["x"] - config.ARM_PREGRASP_BACKOFF,
+             grasp["z"] + config.ARM_PREGRASP_RAISE)])
+        if not ok:
+            return self._pick_failed(f"PARCEL_OUT_OF_REACH {why}", sim_time,
+                                     arm_moved=False)
+        self.grasp_attempts += 1
+        self.log(f"[t={sim_time:.1f}s] Docked at parcel: face range "
+                 f"{self.docker.measured_range:.3f} m -> grasp TCP "
+                 f"({grasp['x']:.3f}, {grasp['z']:.3f}) m in the robot frame, "
+                 f"attempt {self.grasp_attempts}/{config.ARM_MAX_GRASP_ATTEMPTS}")
+        self.manip.start_pick(sim_time, grasp)
+        self._set_state("ARM_PICK", sim_time)
+        return 0.0, 0.0
+
+    def _do_arm_pick(self, pose, scan, angles, detections, sim_time, dt):
+        st = self.manip.update(sim_time)
+        if st == "SUCCEEDED":
+            self.manip.start_verify_attachment(sim_time)
+            self._set_state("VERIFY_ATTACHMENT", sim_time)
+        elif st == "FAILED":
+            return self._pick_failed(self.manip.reason, sim_time)
+        return 0.0, 0.0
+
+    def _do_verify_attachment(self, pose, scan, angles, detections, sim_time, dt):
+        st = self.manip.update(sim_time)
+        if st == "SUCCEEDED":
+            self.carrying = True
+            px, py = self.pkg_pos
+            d = math.hypot(pose[0] - px, pose[1] - py)
+            self.log(f"[t={sim_time:.1f}s] Package {config.TASK_PACKAGE} — "
+                     f"Distance: {d:.2f} m — picked up by the arm "
+                     f"(attachment verified: width + palm range + force/latch)")
+            self._set_state("PLAN_DELIVERY", sim_time)
+        elif st == "FAILED":
+            return self._pick_failed(self.manip.reason, sim_time)
+        return 0.0, 0.0
+
+    def _pick_failed(self, reason, sim_time, arm_moved=True):
+        """Recover and retry the pick, or give up with ERROR."""
+        self.log(f"[t={sim_time:.1f}s] PICK FAILED: {reason}")
+        self.failure_reason = reason
+        retry = self.grasp_attempts < config.ARM_MAX_GRASP_ATTEMPTS
+        if not arm_moved:
+            # docking failed or target unreachable: count it as an attempt
+            self.grasp_attempts += 1
+            retry = self.grasp_attempts < config.ARM_MAX_GRASP_ATTEMPTS
+            if retry:
+                self.log(f"[t={sim_time:.1f}s] Retrying the docking "
+                         f"({self.grasp_attempts}/{config.ARM_MAX_GRASP_ATTEMPTS})")
+                self._start_dock_pick(sim_time)
+                return 0.0, 0.0
+            return self._mission_failed(reason, sim_time, recover=False)
+        self.carrying = False
+        self._recover_then("DOCK_PICK" if retry else "ERROR", sim_time,
+                           keep_parcel=False)
+        return 0.0, 0.0
+
+    def _do_dock_place(self, pose, scan, angles, detections, sim_time, dt):
+        v, w = self.docker.update(pose, scan, angles, sim_time)
+        if self.docker.status == "RUNNING":
+            return v, w
+        self._record_dock(self.docker)
+        self.place_attempts += 1
+        if self.docker.status == "FAILED":
+            if self.place_attempts < config.ARM_MAX_GRASP_ATTEMPTS:
+                self.log(f"[t={sim_time:.1f}s] DOCK_PLACE failed "
+                         f"({self.docker.reason}) — retrying")
+                self.docker = Docker(shelving.dock_line_for_slot(self.target_slot),
+                                     log=self._dlog, name="DOCK_PLACE")
+                return 0.0, 0.0
+            return self._mission_failed(f"DOCK_PLACE {self.docker.reason}", sim_time,
+                                        recover=False)
+        place = shelving.place_tcp_for_slot(self.target_slot,
+                                            measured_range=self.docker.measured_range)
+        ok, why = self._reachable([(place["pre_x"], place["z_hover"]),
+                                   (place["x"], place["z_hover"]),
+                                   (place["x"], place["z_release"]),
+                                   (place["retract_x"], place["z_release"])])
+        if not ok:
+            return self._mission_failed(f"SHELF_TARGET_UNREACHABLE {why}", sim_time,
+                                        recover=False)
+        self.place_targets = place
+        self.log(f"[t={sim_time:.1f}s] Docked at rack: front range "
+                 f"{self.docker.measured_range:.3f} m -> place TCP "
+                 f"({place['x']:.3f}, {place['z_release']:.3f}) m in the robot frame "
+                 f"for slot {self.target_slot.slot_id}")
+        self.manip.start_place(sim_time, place)
+        self._set_state("ARM_PLACE", sim_time)
+        return 0.0, 0.0
+
+    def _do_arm_place(self, pose, scan, angles, detections, sim_time, dt):
+        st = self.manip.update(sim_time)
+        if st == "SUCCEEDED":
+            self.carrying = False           # latch open, fingers open
+            self.manip.start_verify_delivery(sim_time, self.place_targets)
+            self._set_state("VERIFY_DELIVERY", sim_time)
+        elif st == "FAILED":
+            reason = self.manip.reason
+            self.failure_reason = reason
+            self.log(f"[t={sim_time:.1f}s] PLACE FAILED: {reason}")
+            if "SLOT_BLOCKED" in reason:
+                # something occupies this slot: keep the parcel, back out,
+                # mark the slot and try the next free one
+                self.occupancy.mark(self.target_slot.slot_id, "blocked")
+                self._recover_then("PLAN_DELIVERY", sim_time, keep_parcel=True,
+                                   retreat_x=self.place_targets["pre_x"])
+            else:
+                self._recover_then("ERROR", sim_time, keep_parcel=True,
+                                   retreat_x=self.place_targets["pre_x"])
+        return 0.0, 0.0
+
+    def _do_verify_delivery(self, pose, scan, angles, detections, sim_time, dt):
+        st = self.manip.update(sim_time)
+        if st == "SUCCEEDED":
+            self.delivery_verified = True
+            self.failure_reason = None
+            self.occupancy.mark(self.target_slot.slot_id, config.TASK_PACKAGE)
+            self.log(f"[t={sim_time:.1f}s] Package {config.TASK_PACKAGE} placed on "
+                     f"shelf slot {self.target_slot.slot_id} — dropped in Zone "
+                     f"{config.TASK_ZONE} rack, delivery verified by the palm "
+                     f"range-finder")
+            self._emit_report(sim_time)
+            if getattr(config, "INTERACTIVE_MODE", False):
+                self._set_state("RETURN_TO_CENTER", sim_time)
+            else:
+                self._set_state("DONE", sim_time)
+        elif st == "FAILED":
+            self._mission_failed(f"DELIVERY_NOT_VERIFIED {self.manip.reason}",
+                                 sim_time, recover=True)
+        return 0.0, 0.0
+
+    def _recover_then(self, next_state, sim_time, keep_parcel=False, retreat_x=None):
+        self._after_recover = next_state
+        self.manip.start_recover(sim_time, keep_parcel=keep_parcel,
+                                 retreat_x=retreat_x)
+        self._set_state("ARM_RECOVER", sim_time)
+
+    def _do_arm_recover(self, pose, scan, angles, detections, sim_time, dt):
+        st = self.manip.update(sim_time)
+        if st == "RUNNING":
+            return 0.0, 0.0
+        nxt = self._after_recover
+        self._after_recover = None
+        if st == "FAILED":
+            self.failure_reason = (f"{self.failure_reason} + ARM_RECOVERY_FAILED "
+                                   f"{self.manip.reason}")
+            nxt = "ERROR"
+        if nxt == "DOCK_PICK":
+            self._start_dock_pick(sim_time)
+        elif nxt == "PLAN_DELIVERY":
+            self._set_state("PLAN_DELIVERY", sim_time)
+        else:
+            self._enter_error(sim_time)
+        return 0.0, 0.0
+
+    def _mission_failed(self, reason, sim_time, recover=True):
+        """Terminal failure: never report success; stow the arm first if asked."""
+        self.failure_reason = reason
+        self.log(f"[t={sim_time:.1f}s] MISSION FAILED: {reason}")
+        if recover and self.manip is not None:
+            self._recover_then("ERROR", sim_time, keep_parcel=False)
+            return 0.0, 0.0
+        self._enter_error(sim_time)
+        return 0.0, 0.0
+
+    def _enter_error(self, sim_time):
+        self._set_state("ERROR", sim_time)
+        self.log(f"ERROR: {self.failure_reason}")
+        if self.manip is not None:
+            self._emit_report(sim_time)
 
     def _do_done(self, pose, scan, angles, detections, sim_time, dt):
         if self.mission_report is None:

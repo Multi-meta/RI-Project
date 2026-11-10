@@ -102,10 +102,13 @@ frame with the robot's pose."
 ### perception.py — [B]
 **What:** the only Webots-facing perception code. Enables devices, wraps
 GPS+IMU pose, encoder odometry, LiDAR (`getRangeImage` → NumPy, invalid =
-inf, measured ray-angle mapping via `LIDAR_ANGLE_SIGN`), camera
-(BGRA→BGR ndarray), detections, and the supervisor world/config consistency
-check.
-**Interface:** `get_pose()`, `get_lidar()`, `get_detections()`,
+inf, measured ray-angle mapping via `LIDAR_ANGLE_SIGN`, self-filter for the
+arm post), the FRONT and REAR cameras as two `CameraChannel`s (each bound to
+its role; preprocessing in `camera_pipeline.py`), detections tagged with the
+camera they came from, and the supervisor world/config consistency check
+(now including the destination racks).
+**Interface:** `get_pose()`, `get_lidar()`, `get_camera_frames()`,
+`get_detections(front, rear)`, `estimate_package_position()`,
 `set_wheel_speeds()`.
 
 ### waypoint_follower.py — [A]
@@ -118,8 +121,10 @@ PID; v is throttled by how aligned we are and how close the waypoint is."
 
 ### decision_maker.py — [C]
 **What:** the FSM: IDLE→FIND_PACKAGE→NAVIGATE→PICK(placeholder)→
-PLAN_DELIVERY→DELIVER→DONE (+ERROR). Every transition printed. Testable
-without Webots — planner and estimator are injected callables.
+PLAN_DELIVERY→DELIVER→DONE (+ERROR) when no arm is present; with the arm the
+manipulation states of the next section replace the placeholder. Every
+transition printed. Testable without Webots — planner, estimator and the
+manipulator are injected.
 **Explain:** "the FSM is pure logic; pytest drives it with a simulated
 unicycle through the whole mission, including the package-never-found ERROR
 path."
@@ -133,11 +138,120 @@ DONE/ERROR.
 **What:** the §13 CSV columns (pose, odometry, commands, state, waypoint
 index, cross-track error, front LiDAR min, detection count).
 
+## Mobile manipulator, destination racks and cameras (final evaluation)
+
+### Robot with arm (side view, robot frame FLU)
+
+```
+             elbow (folded up when carrying)
+               o
+              /|          upper arm = 2 side plates (clevis), forearm passes between them
+     shoulder o |
+   (z=0.25 m) | o wrist ── palm ─┬─ fingers (SliderJoint x2, force pads)
+              |   [parcel]       └─ Connector "gripper_latch" (active) + DistanceSensor "palm_range"
+          post|
+   rear cam ■─┴──────────[ body 0.30 x 0.20 ]──────────■ front cam   (lenses z = 0.12 m)
+   ---- LiDAR plane z = 0.14 m (the post is the only self-return: self-filter < 0.15 m) ----
+```
+
+* **Joints:** shoulder, elbow, wrist = `HingeJoint` + `RotationalMotor` +
+  `PositionSensor`, axis `0 -1 0` so a positive angle lifts the link; fingers
+  = `SliderJoint` + `LinearMotor` + `PositionSensor`. Gripper pitch
+  φ = q1+q2+q3 is kept 0 (horizontal) — the base supplies yaw, the arm supplies
+  reach and height.
+* **Geometry (config §13):** L1 = 0.28 m, L2 = 0.25 m, wrist→parcel centre
+  0.16 m; joint limits inside Webots hard stops; counterweight in the base COM
+  (static tipping margin ≈ 7 cm with a 0.5 kg parcel at full reach).
+* **Stow / carry pose:** parcel held over the body at z ≥ 0.18 m — above the
+  LiDAR plane, outside both camera frusta, within the bumper line (+1.5 cm).
+
+### Data flow during manipulation
+
+```
+ DecisionMaker ──(when)──► Docker (docking.py) ──(v, ω)──► wheels      [arm stowed]
+      │                      ▲ LiDAR range, LiDAR outline fit, pose
+      └──(how)──► PickPlaceController (pick_place.py) ── steps ──┐      [base (0,0)]
+                     │                                             │
+          ArmController (arm_controller.py)        Gripper (gripper.py)
+          IK + quintic / Cartesian lines           open / close (force-limited),
+          tracking-error monitor                   latch, grasp fusion
+                     │                                             │
+                     └─────────── WebotsArmDriver (arm_driver.py) ─┘  ← only Webots-facing file
+```
+
+| Module | Role | Owner (suggested) |
+|---|---|---|
+| `arm_kinematics.PlanarPitchArm` | analytic FK/IK (elbow-up/down), limits, reach ratio; 2-D clearance model | A |
+| `arm_controller.py` | joint/Cartesian motions, velocity limits, tracking-fault detection | A |
+| `gripper.py` | fingers + latch + "holding" fusion (width, palm range, force/latch) | A + B |
+| `pick_place.py` | named step sequences with a sensor check per step, recover | A + C |
+| `docking.py` | LiDAR face range, box centre/yaw fit, coarse-to-fine docking | A + B |
+| `shelving.py` | racks, slots, dock lines, robot-frame targets, ground-truth audit | C |
+| `camera_pipeline.py` | BGRA→BGR, frame health (blank/frozen), light-scaled camera R | B |
+
+### FSM with the arm
+
+```
+IDLE → ARM_STOW → FIND_PACKAGE → NAVIGATE → DOCK_PICK → ARM_PICK → VERIFY_ATTACHMENT
+     → PLAN_DELIVERY (choose free slot) → DELIVER → DOCK_PLACE → ARM_PLACE → VERIFY_DELIVERY
+     → DONE | RETURN_TO_CENTER (interactive)
+failures → ARM_RECOVER → (retry DOCK_PICK | next slot via PLAN_DELIVERY | ERROR)
+```
+
+| Step | Sensor evidence required to continue |
+|---|---|
+| DOCK_PICK / DOCK_PLACE | LiDAR face range within ±0.8 cm of the standoff, lateral ≤ 1.5 cm, heading ≤ 3° |
+| ARM_PICK | palm range ≤ 4 cm before closing; fingers stalled at parcel width ±1.5 cm; latch peer present → locked |
+| VERIFY_ATTACHMENT | after a 5 cm lift and again in the carry pose: width ✓, palm ✓, force or latch ✓ |
+| ARM_PLACE | INSERT completes without joint tracking error (else SLOT_BLOCKED → next slot) |
+| VERIFY_DELIVERY | latch open, fingers open, palm range after a 6 cm back-off = 7 ± 2 cm |
+
+### Attachment mechanism (why a Connector)
+
+Webots' `Connector` is the documented mechanism for "an object equipped with
+a passive connector grasped by a robotic gripper equipped with an active
+connector". Each parcel carries four passive connectors (one per vertical
+face, x-axis outward, `snap FALSE` so the parcel keeps its pose); the palm
+carries the active one. `lock()` creates a real physical joint only when the
+peer is present (distance ≤ 4 cm, axes opposed within 0.35 rad); `unlock()`
+removes it and the parcel drops the last 3 mm onto the shelf under gravity.
+The fingers still close force-limited on the parcel: they centre it and their
+encoders/force pads are the independent check that something parcel-sized is
+really held. No Supervisor teleport is used when the arm is present; the
+Supervisor only AUDITS the final parcel position for the report.
+
+### Destination racks
+
+Two racks (`DEST_RACK_A/B`) against the east wall behind zones A/B; front
+face at x = 3.66 m, 0.32 m deep, 2 bays × 3 levels (tops 0.15 / 0.41 /
+0.67 m). Levels 1–2 are robot slots; level 3 is overflow storage beyond the
+arm's reach. The kick plate in front of level 1 sits in the LiDAR plane, so
+docking measures the exact distance to the rack. Footprints are part of
+`STATIC_OBSTACLES`, i.e. of the planner's map; the pre-dock poses are outside
+the inflated area and docking covers the last 0.2 m at ≤ 6 cm/s.
+
+### Cameras
+
+```
+Camera "camera" (front)      planar, FOV 1.0 rad, 320x240, lens (0.15, 0, 0.12), yaw 0
+Camera "rear_camera" (rear)  planar, FOV 1.0 rad, 320x240, lens (-0.15, 0, 0.12), yaw pi
+getImage() BGRA ──► camera_pipeline.bgra_to_bgr (drop alpha; no swap, no flip)
+            ──► FrameHealthMonitor (BLANK / FROZEN) ──► detector.detect_colors(is_rear)
+            ──► estimation.bearing_from_detection: front phi = -atan(u'/f),
+                                                    rear  phi = pi - atan(u'/f)
+```
+
 ## Tools (offline, no Webots needed)
 
 | Tool | Output |
 |---|---|
-| `tools/generate_world.py` | `worlds/warehouse.wbt` (world = config, always) |
+| `tools/generate_world.py` | `worlds/warehouse*.wbt` (world = config, always) |
+| `tools/validate_world.py` | static checks of the generated worlds (node types, devices, FOV, DEFs, determinism) |
+| `tools/offline_mission_sim.py` | kinematic (NOT physics) end-to-end run of the real FSM + arm code |
+| `tools/plot_arm_workspace.py` | `docs/evidence/arm_workspace.png/.md` (design geometry) |
+| `tools/plot_manipulation.py` | joint/gripper/latch timeline from `logs/manip*.csv` |
+| `tools/analyze_manipulation.py` | `docs/evidence/manipulation_results.md` from mission reports |
+| `tools/run_scenario.py` | batch Webots runs (S1 variants, camera/joint/gripper/pick checks) |
 | `tools/plot_astar.py` | `docs/evidence/astar_pickup_to_zoneB.png` + A*/Dijkstra comparison + two-route check |
 | `tools/plot_lidar.py` | `docs/evidence/lidar_scan.png` (needs `logs/lidar_scan.csv` from sim) |
 | `tools/eval_detector.py` | `docs/evidence/detector_eval.md` + annotated example (needs saved frames) |

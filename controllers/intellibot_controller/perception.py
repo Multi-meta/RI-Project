@@ -1,13 +1,15 @@
 """perception.py — Webots device wrappers (the ONLY file besides the entry
 point that touches the Webots API, apart from drive_test).
 
-Wraps: GPS + IMU pose, wheel encoders + odometry, LiDAR scan, camera frame
--> OpenCV detections, motor commands.
+Wraps: GPS + IMU pose, wheel encoders + odometry, LiDAR scan (with the
+robot self-filter), front + rear camera channels -> OpenCV detections, motor
+commands. Image preprocessing itself lives in camera_pipeline.py (pure).
 
 Webots conventions verified against docs/webots_findings.md:
     * devices must be enable(timestep)-d before first use
     * first PositionSensor value may be NaN
     * camera.getImage() returns BGRA bytes valid until the next step
+      (converted by camera_pipeline.bgra_to_bgr: drop alpha, no flip)
     * LiDAR ray angle mapping uses config.LIDAR_ANGLE_SIGN / _OFFSET
       (empirically measured; see Phase 4.2)
 """
@@ -17,7 +19,56 @@ import math
 import config
 import detector as detector_mod
 import estimation
+from camera_pipeline import FRONT, REAR, FrameHealthMonitor, make_frame
 from kinematics import Odometry
+from mapping import self_filter
+
+
+class CameraChannel:
+    """One physical camera bound to ONE role ("front" or "rear").
+
+    The role comes from the device name in config (CAMERA_NAME ->
+    front, REAR_CAMERA_NAME -> rear), is stored with every frame and with
+    every detection, and is the only thing estimation.py uses to decide
+    whether a bearing points forwards or backwards — so the two feeds can
+    never be interchanged silently.
+    """
+
+    def __init__(self, robot, timestep, device_name, role):
+        self.role = role
+        self.name = device_name
+        self.device = None
+        self.width = self.height = 0
+        self.fov = None
+        try:
+            self.device = robot.getDevice(device_name)
+        except Exception:
+            self.device = None
+        if self.device is None:
+            print(f"[PERCEPTION] camera '{device_name}' ({role}) not found")
+            return
+        self.device.enable(timestep)
+        self.width = self.device.getWidth()
+        self.height = self.device.getHeight()
+        try:
+            self.fov = self.device.getFov()
+        except Exception:
+            self.fov = (config.REAR_CAMERA_FOV if role == REAR else config.CAMERA_FOV)
+        self.monitor = FrameHealthMonitor(role)
+        if not (0.0 < self.fov < math.pi):
+            print(f"[PERCEPTION] WARNING: {device_name} fieldOfView {self.fov:.4f} rad "
+                  f"is not a valid planar FOV (0, pi) — image will be degenerate")
+
+    @property
+    def available(self):
+        return self.device is not None
+
+    def read(self, t=0.0):
+        """-> camera_pipeline.CameraFrame (valid=False until the first sample)."""
+        if self.device is None:
+            return make_frame(self.role, None, 0, 0, t)
+        return make_frame(self.role, self.device.getImage(), self.width,
+                          self.height, t, self.monitor)
 
 
 class Perception:
@@ -45,25 +96,15 @@ class Perception:
         self.lidar_max = self.lidar.getMaxRange()
         self._ray_angles = self._compute_ray_angles()
 
-        # camera (front)
-        self.camera = robot.getDevice(config.CAMERA_NAME)
-        self.camera.enable(self.dt)
-        self.cam_w = self.camera.getWidth()
-        self.cam_h = self.camera.getHeight()
-
-        # rear camera (for 360 view)
-        self.rear_camera = None
-        try:
-            self.rear_camera = robot.getDevice(config.REAR_CAMERA_NAME)
-            if self.rear_camera is not None:
-                self.rear_camera.enable(self.dt)
-                self.rear_cam_w = self.rear_camera.getWidth()
-                self.rear_cam_h = self.rear_camera.getHeight()
-            else:
-                self.rear_cam_w, self.rear_cam_h = self.cam_w, self.cam_h
-        except Exception:
-            self.rear_camera = None
-            self.rear_cam_w, self.rear_cam_h = self.cam_w, self.cam_h
+        # cameras: one channel per physical camera, each bound to its role
+        self.front_cam = CameraChannel(robot, self.dt, config.CAMERA_NAME, FRONT)
+        self.rear_cam = CameraChannel(robot, self.dt, config.REAR_CAMERA_NAME, REAR)
+        # backwards-compatible attributes used by older code/tools
+        self.camera = self.front_cam.device
+        self.cam_w, self.cam_h = self.front_cam.width, self.front_cam.height
+        self.rear_camera = self.rear_cam.device
+        self.rear_cam_w, self.rear_cam_h = self.rear_cam.width, self.rear_cam.height
+        self.last_frames = {}
 
         # gps + imu
         self.gps = robot.getDevice(config.GPS_NAME)
@@ -109,59 +150,58 @@ class Perception:
         """(ranges, angles): numpy arrays; invalid returns -> inf."""
         import numpy as np
         img = self.lidar.getRangeImage()
+        if img is None:
+            return (np.full(len(self._ray_angles), math.inf),
+                    np.asarray(self._ray_angles))
         ranges = np.asarray(img, dtype=float)
-        # keep validity semantics: inf = no return (already inf), NaN -> inf
-        ranges[~np.isfinite(ranges)] = math.inf
+        # keep validity semantics: inf = no return (already inf), NaN -> inf;
+        # returns from the robot's own arm post are removed (self-filter)
+        ranges = self_filter(ranges, config.LIDAR_SELF_FILTER_RANGE)
         return ranges, np.asarray(self._ray_angles)
 
     # ---------------------------------------------------------------- camera
+    def get_camera_frames(self, t=0.0):
+        """Both cameras -> {"front": CameraFrame, "rear": CameraFrame}."""
+        self.last_frames = {FRONT: self.front_cam.read(t), REAR: self.rear_cam.read(t)}
+        return self.last_frames
+
     def get_frame(self):
-        """BGR ndarray copy (alpha dropped). Webots gives BGRA bytes."""
-        import numpy as np
-        data = self.camera.getImage()
-        img = np.frombuffer(data, np.uint8).reshape(self.cam_h, self.cam_w, 4)
-        return img[:, :, :3].copy()
+        """FRONT camera BGR ndarray (alpha dropped), or None if not valid yet."""
+        return self.front_cam.read().image
 
     def get_rear_frame(self):
-        """Rear camera BGR ndarray copy."""
-        if self.rear_camera is None:
-            return None
-        import numpy as np
-        data = self.rear_camera.getImage()
-        if data is None:
-            return None
-        img = np.frombuffer(data, np.uint8).reshape(self.rear_cam_h, self.rear_cam_w, 4)
-        return img[:, :, :3].copy()
+        """REAR camera BGR ndarray, or None if absent / not valid yet."""
+        return self.rear_cam.read().image
 
-    def get_detections(self, frame=None):
+    def get_detections(self, frame=None, rear_frame=None):
+        """Detections from both cameras, each tagged with its source camera.
+
+        frame / rear_frame: BGR arrays already read this step (optional).
+        Invalid (None) frames are skipped instead of crashing the detector.
+        """
         if frame is None:
             frame = self.get_frame()
-        dets = detector_mod.detect_colors(frame, is_rear=False)
-        if self.rear_camera is not None:
-            r_frame = self.get_rear_frame()
-            if r_frame is not None:
-                r_dets = detector_mod.detect_colors(r_frame, is_rear=True)
-                dets.extend(r_dets)
+        dets = []
+        if frame is not None:
+            dets.extend(detector_mod.detect_colors(frame, is_rear=False))
+        if self.rear_cam.available:
+            if rear_frame is None:
+                rear_frame = self.get_rear_frame()
+            if rear_frame is not None:
+                dets.extend(detector_mod.detect_colors(rear_frame, is_rear=True))
         return dets
 
-    def estimate_package_position(self, detection, pose, scan, angles):
-        is_rear = getattr(detection, "is_rear", False)
-        if is_rear and self.rear_camera is not None:
-            width = self.rear_cam_w
-            try:
-                hfov = self.rear_camera.getFov()
-            except Exception:
-                hfov = getattr(config, "REAR_CAMERA_FOV", config.CAMERA_FOV)
-        else:
-            width = self.cam_w
-            try:
-                hfov = self.camera.getFov()
-            except Exception:
-                hfov = config.CAMERA_FOV
+    def camera_for(self, detection):
+        """The channel a detection came from (front unless tagged rear)."""
+        return self.rear_cam if getattr(detection, "is_rear", False) else self.front_cam
 
+    def estimate_package_position(self, detection, pose, scan, angles):
+        cam = self.camera_for(detection)
+        hfov = cam.fov if cam.fov else (config.REAR_CAMERA_FOV if cam.role == REAR
+                                        else config.CAMERA_FOV)
         return estimation.estimate_package_position(
             detection, pose, scan, angles,
-            width=width, hfov=hfov)
+            width=cam.width or config.CAMERA_WIDTH, hfov=hfov)
 
     # ---------------------------------------------------------------- motors
     def set_wheel_speeds(self, w_left, w_right):
@@ -175,9 +215,12 @@ def check_world_consistency(supervisor):
     if not config.WORLD_CHECK_ENABLED:
         return True
     ok = True
+    import shelving
     checks = [(defname, x, y) for (defname, x, y, _c) in config.PACKAGES]
     checks += [(d, x, y) for (x, y, _sx, _sy, _h, d) in config.SHELVES]
     checks += [(d, x, y) for (x, y, _sx, _sy, _h, d) in config.CRATES]
+    checks += [(r.def_name, r.center[0], r.center[1])
+               for r in shelving.build_racks().values()]
     for defname, x_cfg, y_cfg in checks:
         node = supervisor.getFromDef(defname)
         if node is None:

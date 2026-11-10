@@ -227,3 +227,52 @@ from real logs — do not invent.
   10/10, goal error 0.08-0.13 m; two earlier failures were diagnosis gold:
   ball occluding P3 and crate blocking LOS — starts now verified against
   static map AND other packages). docs/evidence/runs_summary.md.
+
+- 2026-11-08 — Audit (Ankit, branch feature/ankit-arm-shelves-camera) —
+  baseline pytest 116 passed / 2 failed. Phase numbers 11/16/17/18 taken from
+  checklist_v2.md. Found: no arm in the mission world (Supervisor teleport
+  pickup); planar camera FOV = pi in config while the committed worlds had
+  been hand-edited to 1.5708 (config/world drift); rear camera housing in
+  front of its lens; v2 world using the non-existent node LinearJoint and
+  coordinateSystem "NUE". Mapping: docs/implementation_plan_ankit.md.
+- 2026-11-08 — Cameras (D) — FOV 1.0 rad planar for both (detector evidence
+  value), mounts from config, housings behind the lenses; camera_pipeline.py
+  (BGRA->BGR validation, blank/frozen health), CameraChannel role binding,
+  explicit projection model in estimation.py. Detector thresholds restored ->
+  test_small_blob_rejected passes again.
+- 2026-11-08 — Arm (B) — shoulder/elbow/wrist pitch arm on a rear post +
+  parallel gripper + Connector latch, generated from config section 13 and
+  starting stowed. Geometry chosen with a 2-D clearance search (first try put
+  the forearm through the carried parcel and the wrist into the bumper).
+  PlanarPitchArm FK/IK, ArmController (quintic + Cartesian lines with
+  joint-velocity-limited timing, tracking-fault detection), Gripper (fusion
+  check 11.9), PickPlaceController (named, sensor-checked steps).
+- 2026-11-08 — Shelving (C) — two racks behind zones A/B (2 bays x 3 levels,
+  L3 unreachable by design), in STATIC_OBSTACLES; slots/dock lines in
+  shelving.py; predock poses reachable, two routes preserved (tests).
+- 2026-11-08 — FSM (16.1/16.2) — DOCK_PICK/ARM_PICK/VERIFY_ATTACHMENT/
+  DOCK_PLACE/ARM_PLACE/VERIFY_DELIVERY/ARM_RECOVER/ARM_STOW; retries, slot
+  fallback, errors never reach DONE. Restored the "Current path BLOCKED at
+  waypoint" trace (test_live_replanning_with_grid passes again). Fixed a
+  yield/cleared infinite loop when the follower was REVERSING.
+- 2026-11-08 — Offline kinematic mission sim (NOT physics) — real FSM + arm
+  code: 10/10 campaign start poses DONE, parcel <= 0.5 cm from slot centre.
+  It exposed a real bug (oblique LiDAR view of a parcel corner gave a
+  diagonal dock line; the palm check caught it): docking now fits box centre
+  + yaw with corner detection, picks the aisle face, and refines twice.
+- 2026-11-08 — Smoke test of the Webots controllers against a stub
+  `controller` module caught a NameError (local `import json` in the main
+  loop) that would have crashed the mission report in Webots.
+- 2026-11-08 — 11.5 — bearing-only EKF update + camera R scaled by image
+  brightness (inf when dark); unit-tested, not wired (no camera landmark in
+  the v1 world yet).
+- 2026-11-08 — Tools — validate_world, offline_mission_sim, plot_arm_workspace,
+  plot_manipulation, analyze_manipulation, run_scenario; manip_check controller
+  (cameras/joints/gripper/pick) for Webots evidence.
+
+### Pending Webots checks for this branch (GPU laptop)
+
+World opens with 0 warnings; `manip_check` modes cameras / gripper / joints /
+pick; S1 missions (>= 8/10 target, record the real rate); camera evidence in
+docs/evidence/cameras/; parcel jitter while latched (see webots_findings.md).
+Exact commands: README "Arm, shelves and cameras".

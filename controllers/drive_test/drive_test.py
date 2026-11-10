@@ -81,7 +81,22 @@ class DriveTest:
         self.imu = self.robot.getDevice(config.IMU_NAME)
         self.imu.enable(self.dt)
         self.odo = Odometry()
+        self._hold_arm_stowed()
         self.step()                     # sensors valid from here on
+
+    def _hold_arm_stowed(self):
+        """The world now contains the arm: keep it in the stow pose (explicit
+        position targets) so validation runs see a fixed, compact robot."""
+        try:
+            from arm_driver import WebotsArmDriver
+            from arm_kinematics import PlanarPitchArm
+            drv = WebotsArmDriver(self.robot, self.dt)
+            if drv.available:
+                drv.command_joints(PlanarPitchArm.from_config().inverse(
+                    *config.ARM_STOW_TCP, 0.0))
+                drv.command_fingers(0.0)
+        except Exception as exc:          # never block the drive tests
+            print(f"[drive_test] arm hold skipped: {exc}")
 
     # ------------------------------------------------------------- helpers
     def step(self):

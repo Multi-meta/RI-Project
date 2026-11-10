@@ -5,10 +5,20 @@ performing an autonomous pick-and-deliver mission:
 
 > **"Pick package P3 (blue) and deliver it to Zone B (cyan)."**
 
-Pipeline: find package (camera) → plan route (A*) → navigate (PID waypoint
-following) → avoid obstacles (LiDAR safety stop) → pick (placeholder in
-mid-eval) → re-plan → deliver → mission report. The robot *perceives,
-decides, plans, and controls in a closed loop* — no hard-coded routes.
+Pipeline: find package (front/rear cameras) → plan route (A*) → navigate
+(PID waypoint following) → avoid obstacles (LiDAR safety stop, re-planning)
+→ **dock and pick the parcel with the robot arm** → re-plan → **dock at the
+destination rack and place the parcel on a shelf slot** → verify → mission
+report. The robot *perceives, decides, plans, and controls in a closed loop*
+— no hard-coded routes.
+
+> **Final-evaluation additions (branch `feature/ankit-arm-shelves-camera`):**
+> shoulder/elbow/wrist arm with a parallel gripper and a Webots `Connector`
+> latch, destination racks behind zones A/B, a docking controller, fixed
+> front/rear cameras, and the matching FSM states. Implemented and tested
+> offline; **the Webots runs are still pending** — see
+> [Arm, shelves and cameras](#arm-shelves-and-cameras) and
+> `docs/implementation_plan_ankit.md`.
 
 ## Repository layout
 
@@ -22,8 +32,13 @@ controllers/intellibot_controller/    # main controller (folder name == entry fi
     warehouse_grid.py                 #   pure: real warehouse grid from config
     detector.py estimation.py         #   pure: HSV detection, pixel→world
     waypoint_follower.py decision_maker.py #   pure: waypoint follower, FSM
-    perception.py                     #   Webots device wrappers
+    arm_kinematics.py arm_controller.py   #   pure: arm FK/IK + clearance, joint/Cartesian motion
+    gripper.py pick_place.py          #   pure: gripper + latch + grasp checks, pick/place steps
+    docking.py shelving.py            #   pure: fine positioning, racks/slots/dock lines
+    camera_pipeline.py                #   pure: BGRA->BGR, frame health, camera R
+    perception.py arm_driver.py       #   Webots device wrappers (sensors/cameras, arm)
     logger.py                         #   CSV logging
+controllers/manip_check/              # arm / gripper / camera validation controller
 controllers/drive_test/               # scripted motion + validation controller
 tools/                                # world generator + offline analysis
 tests/                                # pytest suite (pure modules)
@@ -32,8 +47,9 @@ logs/                                 # CSVs from simulation runs
 ```
 
 Design rule: everything that doesn't need the simulator is pure Python
-(tested with pytest); only `intellibot_controller.py`, `perception.py` and
-`drive_test.py` touch the Webots API.
+(tested with pytest); only `intellibot_controller.py`, `perception.py`,
+`arm_driver.py` and the test controllers (`drive_test`, `manip_check`) touch
+the Webots API.
 
 ## Requirements
 
@@ -54,12 +70,16 @@ The world is generated from `config.py` so the simulator and the planner's
 map can never disagree:
 
 ```bash
-python tools/generate_world.py        # writes worlds/warehouse.wbt (+ warehouse_drive_test.wbt)
+python tools/generate_world.py        # writes worlds/warehouse*.wbt (+ copies in worlds_output/)
+python tools/validate_world.py        # static checks: node types, devices, camera FOV, determinism
 ```
 
-Both worlds are identical except for the robot's controller:
+The three v1 worlds are identical except for the robot's controller:
 `warehouse.wbt` runs `intellibot_controller` (mission),
-`warehouse_drive_test.wbt` runs `drive_test` (Phase 2/3 validation).
+`warehouse_drive_test.wbt` runs `drive_test` (Phase 2/3 validation),
+`warehouse_manip_check.wbt` runs `manip_check` (arm / gripper / cameras).
+Never edit a `.wbt` by hand — change `config.py` and regenerate (a test fails
+if a world on disk differs from the generator).
 
 ## Run the mission demo
 
@@ -109,7 +129,7 @@ Opening the world from the Webots GUI runs `sequence` (the default mode).
 ## Run tests (no Webots needed)
 
 ```bash
-python -m pytest tests/ -q            # 63 tests, ~1 s
+python -m pytest tests/ -q            # 244 tests, ~15 s (includes offline kinematic missions)
 ```
 
 ## Offline evidence tools
@@ -149,6 +169,57 @@ inside `intellibot_controller.py`'s `apply_campaign_start`.)
    `frame,pkg,present` (e.g. `f001.png,P3,1`).
 4. `python tools/eval_detector.py`.
 
+## Arm, shelves and cameras
+
+### What is in the world now
+* **Arm** on a post at the back of the robot: shoulder, elbow, wrist
+  (`shoulder_motor`/`elbow_motor`/`wrist_motor` + `*_sensor`), two fingers
+  (`finger_left_motor`/`finger_right_motor`, force pads `finger_*_touch`),
+  palm range-finder `palm_range`, latch `gripper_latch` (active `Connector`).
+  Every parcel has a passive `Connector` on each vertical face.
+* **Destination racks** `DEST_RACK_A` / `DEST_RACK_B` against the east wall
+  behind the zones; slots `RA|RB-L1|L2-B1|B2` (level 3 is out of the arm's reach).
+* **Cameras** `camera` (front) and `rear_camera` (rear, rotated π): planar,
+  1.0 rad, 320×240, lenses 0.12 m high on the front/back faces.
+
+### Run the pick-and-place mission
+```bash
+webots worlds/warehouse.wbt                # GUI: the task dialog appears (interactive mode)
+# batch, no dialog (Git Bash / Linux):
+INTELLIBOT_TASK_PACKAGE=P3 INTELLIBOT_TASK_ZONE=B INTELLIBOT_INTERACTIVE=0 \
+    webots --batch --mode=fast --stdout --stderr worlds/warehouse.wbt
+python tools/run_scenario.py S1_store_P3_B --runs 10      # same, 10 runs -> logs/final/
+```
+Console: `STATE: NAVIGATE -> DOCK_PICK`, `[DOCK_PICK] DOCKED: range …`,
+`[MANIP] CHECK_GRASP: OK width=20.0cm …`, `STATE: … -> VERIFY_DELIVERY`,
+`MANIPULATION: result=DELIVERED, slot=RB-L1-B1 …` and an `[AUDIT]` line
+(Supervisor ground truth, evaluation only). Files: `logs/run.csv`,
+`logs/manip.csv`, `logs/mission_report.json`. Then:
+```bash
+python tools/analyze_manipulation.py      # -> docs/evidence/manipulation_results.md
+python tools/plot_manipulation.py         # -> docs/evidence/manip_timeline.png
+```
+
+### Test the arm, gripper and cameras in isolation
+```bash
+W=worlds/warehouse_manip_check.wbt
+MANIP_CHECK_MODE=cameras webots --batch --mode=realtime --stdout --stderr $W  # keep rendering ON
+MANIP_CHECK_MODE=gripper webots --batch --mode=fast --stdout --stderr $W
+MANIP_CHECK_MODE=joints  webots --batch --mode=fast --stdout --stderr $W
+MANIP_CHECK_MODE=pick    webots --batch --mode=realtime --stdout --stderr $W
+```
+Outputs: `docs/evidence/cameras/*.png` + `camera_validation.md` (each camera's
+detections vs its own Recognition node: colours, image side, no feed swap),
+`docs/evidence/manipulation/joint_check.md`, `gripper_check.json`,
+`pick_check.md` (+ `pick_check_carry.png`). Opening the world in the GUI runs
+all four in sequence.
+
+### Offline (no Webots)
+```bash
+python tools/offline_mission_sim.py --package P3 --zone B   # kinematic, NOT physics
+python tools/plot_arm_workspace.py                           # design figure + reach table
+```
+
 ## Known limitations (honest list)
 
 - Measured in Webots so far: world/config consistency, rest stability,
@@ -163,6 +234,13 @@ inside `intellibot_controller.py`'s `apply_campaign_start`.)
   unverified, Phase 4.2). Pickup is still a placeholder.
 - Localization uses GPS+IMU (idealized); wheel odometry is implemented and
   validated against it. A real robot needs odometry+LiDAR localization/SLAM.
-- Pickup is a placeholder in the mid-eval (attach mechanism = final eval).
+- Pickup was a placeholder in the mid-eval. The final-eval arm/latch pickup
+  is implemented and tested offline only (kinematic simulator + unit tests);
+  physical behaviour in Webots (grip stability, docking accuracy, success
+  rate) is still to be measured. Retrieve missions (shelf → zone) are not
+  implemented. Racks are reached only at levels 1–2.
+- The arm post creates a ~13° LiDAR blind sector straight behind the robot
+  (self-filtered); reversing relies on the remaining rear rays and the rear
+  bumper.
 - Dynamic re-planning hooks exist and are unit-tested but not wired live
   (final-eval "wow" feature).

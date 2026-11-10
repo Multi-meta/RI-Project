@@ -10,6 +10,7 @@ WorldInfo {
   coordinateSystem "ENU"
   contactProperties [
     ContactProperties { material2 "caster" coulombFriction [ 0 ] }
+    ContactProperties { material1 "gripper_pad" material2 "parcel" coulombFriction [ 1.2 ] }
   ]
 }
 DEF VIEWPOINT Viewpoint { orientation -0.3483 0.5091 0.7871 1.4309 position -2.5000 -7.0000 8.5000 }
@@ -177,10 +178,60 @@ DEF PKG_P1 Solid {
   translation -3.1 0.5 0.1
   children [
     Shape { appearance Appearance { material Material { diffuseColor 1 0 0 } } geometry Box { size 0.2 0.2 0.2 } }
+
+    Connector {
+      translation 0.1 0 0
+      rotation 0 0 1 0
+      name "latch_px"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation -0.1 0 0
+      rotation 0 0 1 3.14159
+      name "latch_nx"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation 0 0.1 0
+      rotation 0 0 1 1.5708
+      name "latch_py"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation 0 -0.1 0
+      rotation 0 0 1 -1.5708
+      name "latch_ny"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
   ]
   model "PKG_P1"
   recognitionColors [ 1 0 0 ]
   name "pkg_p1"
+  contactMaterial "parcel"
   boundingObject Box { size 0.2 0.2 0.2 }
   physics Physics { density -1 mass 0.5 }
 }
@@ -189,10 +240,60 @@ DEF PKG_P2 Solid {
   translation -3.1 0.0 0.1
   children [
     Shape { appearance Appearance { material Material { diffuseColor 0 1 0 } } geometry Box { size 0.2 0.2 0.2 } }
+
+    Connector {
+      translation 0.1 0 0
+      rotation 0 0 1 0
+      name "latch_px"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation -0.1 0 0
+      rotation 0 0 1 3.14159
+      name "latch_nx"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation 0 0.1 0
+      rotation 0 0 1 1.5708
+      name "latch_py"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation 0 -0.1 0
+      rotation 0 0 1 -1.5708
+      name "latch_ny"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
   ]
   model "PKG_P2"
   recognitionColors [ 0 1 0 ]
   name "pkg_p2"
+  contactMaterial "parcel"
   boundingObject Box { size 0.2 0.2 0.2 }
   physics Physics { density -1 mass 0.5 }
 }
@@ -201,12 +302,108 @@ DEF PKG_P3 Solid {
   translation -3.1 -0.5 0.1
   children [
     Shape { appearance Appearance { material Material { diffuseColor 0 0 1 } } geometry Box { size 0.2 0.2 0.2 } }
+
+    Connector {
+      translation 0.1 0 0
+      rotation 0 0 1 0
+      name "latch_px"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation -0.1 0 0
+      rotation 0 0 1 3.14159
+      name "latch_nx"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation 0 0.1 0
+      rotation 0 0 1 1.5708
+      name "latch_py"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
+    Connector {
+      translation 0 -0.1 0
+      rotation 0 0 1 -1.5708
+      name "latch_ny"
+      model "parcel_latch"
+      type "passive"
+      distanceTolerance 0.04
+      axisTolerance 0.35
+      rotationTolerance 0.35
+      numberOfRotations 0
+      snap FALSE
+    }
   ]
   model "PKG_P3"
   recognitionColors [ 0 0 1 ]
   name "pkg_p3"
+  contactMaterial "parcel"
   boundingObject Box { size 0.2 0.2 0.2 }
   physics Physics { density -1 mass 0.5 }
+}
+
+DEF DEST_RACK_A Solid {
+  translation 3.82 0.9 0
+  children [
+    Pose { translation -0.145 -0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation -0.145 0 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation -0.145 0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0.145 -0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0.145 0 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0.145 0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0 0 0.14 children [ Shape { appearance Appearance { material Material { diffuseColor 0.62 0.63 0.65 } } geometry Box { size 0.32 0.93 0.02 } } ] }
+    Pose { translation 0 0 0.4 children [ Shape { appearance Appearance { material Material { diffuseColor 0.62 0.63 0.65 } } geometry Box { size 0.32 0.93 0.02 } } ] }
+    Pose { translation 0 0 0.66 children [ Shape { appearance Appearance { material Material { diffuseColor 0.62 0.63 0.65 } } geometry Box { size 0.32 0.93 0.02 } } ] }
+    Pose { translation -0.155 0 0.065 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.01 0.93 0.13 } } ] }
+    Pose { translation 0.155 0 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.01 0.93 0.67 } } ] }
+    Pose { translation -0.162 -0.225 0.14 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+    Pose { translation -0.162 0.225 0.14 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+    Pose { translation -0.162 -0.225 0.4 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+    Pose { translation -0.162 0.225 0.4 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+  ]
+  name "dest_rack_a"
+  boundingObject Group { children [ Pose { translation -0.145 -0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation -0.145 0 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation -0.145 0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0.145 -0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0.145 0 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0.145 0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0 0 0.14 children [ Box { size 0.32 0.93 0.02 } ] } Pose { translation 0 0 0.4 children [ Box { size 0.32 0.93 0.02 } ] } Pose { translation 0 0 0.66 children [ Box { size 0.32 0.93 0.02 } ] } Pose { translation -0.155 0 0.065 children [ Box { size 0.01 0.93 0.13 } ] } Pose { translation 0.155 0 0.335 children [ Box { size 0.01 0.93 0.67 } ] } ] }
+}
+
+DEF DEST_RACK_B Solid {
+  translation 3.82 -0.9 0
+  children [
+    Pose { translation -0.145 -0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation -0.145 0 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation -0.145 0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0.145 -0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0.145 0 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0.145 0.45 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.03 0.03 0.67 } } ] }
+    Pose { translation 0 0 0.14 children [ Shape { appearance Appearance { material Material { diffuseColor 0.62 0.63 0.65 } } geometry Box { size 0.32 0.93 0.02 } } ] }
+    Pose { translation 0 0 0.4 children [ Shape { appearance Appearance { material Material { diffuseColor 0.62 0.63 0.65 } } geometry Box { size 0.32 0.93 0.02 } } ] }
+    Pose { translation 0 0 0.66 children [ Shape { appearance Appearance { material Material { diffuseColor 0.62 0.63 0.65 } } geometry Box { size 0.32 0.93 0.02 } } ] }
+    Pose { translation -0.155 0 0.065 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.01 0.93 0.13 } } ] }
+    Pose { translation 0.155 0 0.335 children [ Shape { appearance Appearance { material Material { diffuseColor 0.4 0.42 0.46 } } geometry Box { size 0.01 0.93 0.67 } } ] }
+    Pose { translation -0.162 -0.225 0.14 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+    Pose { translation -0.162 0.225 0.14 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+    Pose { translation -0.162 -0.225 0.4 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+    Pose { translation -0.162 0.225 0.4 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.1 0.012 } } ] }
+  ]
+  name "dest_rack_b"
+  boundingObject Group { children [ Pose { translation -0.145 -0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation -0.145 0 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation -0.145 0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0.145 -0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0.145 0 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0.145 0.45 0.335 children [ Box { size 0.03 0.03 0.67 } ] } Pose { translation 0 0 0.14 children [ Box { size 0.32 0.93 0.02 } ] } Pose { translation 0 0 0.4 children [ Box { size 0.32 0.93 0.02 } ] } Pose { translation 0 0 0.66 children [ Box { size 0.32 0.93 0.02 } ] } Pose { translation -0.155 0 0.065 children [ Box { size 0.01 0.93 0.13 } ] } Pose { translation 0.155 0 0.335 children [ Box { size 0.01 0.93 0.67 } ] } ] }
 }
 
 DEF DYN_OBSTACLE Solid {
@@ -273,22 +470,26 @@ DEF INTELLIBOT Robot {
       maxRange 4.0
     }
     Camera {
-      translation 0.16 0 0.16
-      children [ Pose { translation -0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
+      translation 0.15 0 0.12
+      children [ Pose { translation -0.008 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.016 0.04 0.024 } } ] } ]
       name "camera"
-      fieldOfView 1.5708
+      fieldOfView 1
       width 320
       height 240
+      projection "planar"
+      near 0.01
       recognition Recognition { frameColor 0.93 0.83 0 }
     }
     Camera {
-      translation -0.16 0 0.16
-      rotation 0 0 1 3.14159265
-      children [ Pose { translation 0.01 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.04 0.03 } } ] } ]
+      translation -0.15 0 0.12
+      rotation 0 0 1 3.14159
+      children [ Pose { translation -0.008 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.016 0.04 0.024 } } ] } ]
       name "rear_camera"
-      fieldOfView 1.5708
+      fieldOfView 1
       width 320
       height 240
+      projection "planar"
+      near 0.01
       recognition Recognition { frameColor 0.93 0.83 0 }
     }
     GPS { name "gps" }
@@ -377,11 +578,142 @@ DEF INTELLIBOT Robot {
         physics Physics { density -1 mass 0.1 }
       }
     }
+    Pose { translation -0.115 0 0.19 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.025 0.025 0.12 } } ] }
+    HingeJoint {
+      jointParameters HingeJointParameters { axis 0 -1 0 anchor -0.115 0 0.25 position 1.49728 minStop -0.25 maxStop 2.5 }
+      device [
+        RotationalMotor { name "shoulder_motor" maxVelocity 1 maxTorque 25 minPosition -0.2 maxPosition 2.45 sound "" }
+        PositionSensor { name "shoulder_sensor" }
+      ]
+      endPoint Solid {
+      translation -0.115 0 0.25
+      rotation 0 -1 0 1.49728
+      children [
+        Pose { translation 0 0 0 rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Cylinder { height 0.082 radius 0.022 subdivision 16 } } ] }
+        Pose { translation 0.14 0.035 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.32 0.012 0.03 } } ] }
+        Pose { translation 0.14 -0.035 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.32 0.012 0.03 } } ] }
+        HingeJoint {
+          jointParameters HingeJointParameters { axis 0 -1 0 anchor 0.28 0 0 position -2.99026 minStop -3.1 maxStop 0.35 }
+          device [
+            RotationalMotor { name "elbow_motor" maxVelocity 1.2 maxTorque 15 minPosition -3.05 maxPosition 0.3 sound "" }
+        PositionSensor { name "elbow_sensor" }
+          ]
+          endPoint Solid {
+          translation 0.28 0 0
+          rotation 0 -1 0 -2.99026
+          children [
+            Pose { translation 0 0 0 rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Cylinder { height 0.05 radius 0.022 subdivision 16 } } ] }
+            Pose { translation 0.125 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.25 0.03 0.03 } } ] }
+            HingeJoint {
+              jointParameters HingeJointParameters { axis 0 -1 0 anchor 0.25 0 0 position 1.49299 minStop -0.65 maxStop 2.25 }
+              device [
+                RotationalMotor { name "wrist_motor" maxVelocity 1.5 maxTorque 6 minPosition -0.6 maxPosition 2.2 sound "" }
+        PositionSensor { name "wrist_sensor" }
+              ]
+              endPoint Solid {
+              translation 0.25 0 0
+              rotation 0 -1 0 1.49299
+              children [
+                Pose { translation 0 0 0 rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Cylinder { height 0.05 radius 0.02 subdivision 16 } } ] }
+                Pose { translation 0.015 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.03 0.04 0.04 } } ] }
+                Pose { translation 0.04 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.02 0.3 0.05 } } ] }
+                Connector {
+                  translation 0.05 0 0
+                  name "gripper_latch"
+                  model "parcel_latch"
+                  type "active"
+                  autoLock FALSE
+                  unilateralLock TRUE
+                  unilateralUnlock TRUE
+                  distanceTolerance 0.04
+                  axisTolerance 0.35
+                  rotationTolerance 0.35
+                  numberOfRotations 0
+                  snap FALSE
+                }
+                DistanceSensor {
+                  translation 0.0505 0 0
+                  name "palm_range"
+                  type "generic"
+                  numberOfRays 1
+                  lookupTable [ 0 0 0, 0.5 0.5 0 ]
+                }
+                SliderJoint {
+                jointParameters JointParameters { axis 0 -1 0 minStop -0.002 maxStop 0.122 }
+                device [
+                  LinearMotor { name "finger_left_motor" maxVelocity 0.05 maxForce 30 minPosition 0 maxPosition 0.12 sound "" }
+                  PositionSensor { name "finger_left_sensor" }
+                ]
+                endPoint Solid {
+                  translation 0.11 0.1415 0
+                  children [
+                    Shape { appearance Appearance { material Material { diffuseColor 0.85 0.1 0.1 } } geometry Box { size 0.12 0.015 0.04 } }
+                    TouchSensor {
+                      translation 0 -0.0095 0
+                      rotation 0 0 1 -1.5708
+                      children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.12 0.04 } } ]
+                      name "finger_left_touch"
+                      type "force"
+                      lookupTable [ 0 0 0, 1000 1000 0 ]
+                      contactMaterial "gripper_pad"
+                      boundingObject Box { size 0.004 0.12 0.04 }
+                      physics Physics { density -1 mass 0.005 }
+                    }
+                  ]
+                  name "finger_left"
+                  boundingObject Box { size 0.12 0.015 0.04 }
+                  physics Physics { density -1 mass 0.03 }
+                }
+              }
+                SliderJoint {
+                jointParameters JointParameters { axis 0 1 0 minStop -0.002 maxStop 0.122 }
+                device [
+                  LinearMotor { name "finger_right_motor" maxVelocity 0.05 maxForce 30 minPosition 0 maxPosition 0.12 sound "" }
+                  PositionSensor { name "finger_right_sensor" }
+                ]
+                endPoint Solid {
+                  translation 0.11 -0.1415 0
+                  children [
+                    Shape { appearance Appearance { material Material { diffuseColor 0.85 0.1 0.1 } } geometry Box { size 0.12 0.015 0.04 } }
+                    TouchSensor {
+                      translation 0 0.0095 0
+                      rotation 0 0 1 1.5708
+                      children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.004 0.12 0.04 } } ]
+                      name "finger_right_touch"
+                      type "force"
+                      lookupTable [ 0 0 0, 1000 1000 0 ]
+                      contactMaterial "gripper_pad"
+                      boundingObject Box { size 0.004 0.12 0.04 }
+                      physics Physics { density -1 mass 0.005 }
+                    }
+                  ]
+                  name "finger_right"
+                  boundingObject Box { size 0.12 0.015 0.04 }
+                  physics Physics { density -1 mass 0.03 }
+                }
+              }
+              ]
+              name "gripper"
+              boundingObject Group { children [ Pose { translation 0.015 0 0 children [ Box { size 0.03 0.04 0.04 } ] } Pose { translation 0.04 0 0 children [ Box { size 0.02 0.3 0.05 } ] } ] }
+              physics Physics { density -1 mass 0.22 centerOfMass [ 0.035 0 0 ] }
+            }
+            }
+          ]
+          name "forearm"
+          boundingObject Pose { translation 0.125 0 0 children [ Box { size 0.25 0.03 0.03 } ] }
+          physics Physics { density -1 mass 0.15 centerOfMass [ 0.125 0 0 ] }
+        }
+        }
+      ]
+      name "upper_arm"
+      boundingObject Group { children [ Pose { translation 0.14 0.035 0 children [ Box { size 0.28 0.012 0.03 } ] } Pose { translation 0.14 -0.035 0 children [ Box { size 0.28 0.012 0.03 } ] } ] }
+      physics Physics { density -1 mass 0.2 centerOfMass [ 0.14 0 0 ] }
+    }
+    }
   ]
   name "INTELLIBOT"
-  boundingObject Pose { translation 0 0 0.08 children [
-    Box { size 0.3 0.2 0.1 } ] }
-  physics Physics { density -1 mass 2.0 }
+  boundingObject Group { children [ Pose { translation 0 0 0.08 children [ Box { size 0.3 0.2 0.1 } ] } Pose { translation -0.115 0 0.19 children [ Box { size 0.025 0.025 0.12 } ] } ] }
+  physics Physics { density -1 mass 2.8 centerOfMass [ -0.0285714 0 0.08 ] }
   controller "intellibot_controller"
   supervisor TRUE
 }

@@ -19,12 +19,15 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "controllers", "intellibot_controller"))
 import config  # noqa: E402
+import shelving  # noqa: E402
+from arm_kinematics import PlanarPitchArm  # noqa: E402
 
 WORLDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
                           "worlds")
 WORLDS = {
     "warehouse.wbt": "intellibot_controller",
     "warehouse_drive_test.wbt": "drive_test",
+    "warehouse_manip_check.wbt": "manip_check",      # arm / gripper / camera checks
     "warehouse_v2.wbt": "intellibot_controller",
 }
 
@@ -58,6 +61,298 @@ COLORS = {
 }
 
 CASTER_MATERIAL = "caster"          # zero-friction contact material
+PAD_MATERIAL = "gripper_pad"        # finger pads (high friction vs parcels)
+PARCEL_MATERIAL = "parcel"
+
+
+def f(v):
+    """Compact float formatting for VRML."""
+    return f"{float(v):.6g}"
+
+
+def vec(*vals):
+    return " ".join(f(v) for v in vals)
+
+
+def camera_node(name, mount_x, yaw, fov):
+    """Planar Webots camera on the robot (FLU): looks along its own +x.
+
+    The housing box is placed BEHIND the lens (-x in the camera frame) for
+    both cameras. (The previous rear camera had its housing at +0.01 in its
+    own, rotated frame, i.e. in FRONT of the lens.)
+    """
+    hd, hw, hh = config.CAMERA_HOUSING_SIZE
+    housing = (f"Pose {{ translation {f(-hd / 2.0)} 0 0 children [ Shape {{ "
+               f"appearance {mat(COLORS['sensor'])} geometry Box {{ size "
+               f"{vec(hd, hw, hh)} }} }} ] }}")
+    rot = f"      rotation 0 0 1 {f(yaw)}\n" if abs(yaw) > 1e-9 else ""
+    return (f"    Camera {{\n"
+            f"      translation {vec(mount_x, 0, config.CAMERA_MOUNT_Z)}\n"
+            f"{rot}"
+            f"      children [ {housing} ]\n"
+            f"      name \"{name}\"\n"
+            f"      fieldOfView {f(fov)}\n"
+            f"      width {config.CAMERA_WIDTH}\n"
+            f"      height {config.CAMERA_HEIGHT}\n"
+            f"      projection \"{config.CAMERA_PROJECTION}\"\n"
+            f"      near {f(config.CAMERA_NEAR)}\n"
+            f"      recognition Recognition {{ frameColor 0.93 0.83 0 }}\n"
+            f"    }}")
+
+
+def _box(size, color, translation=(0, 0, 0), rotation=None):
+    rot = f" rotation {vec(*rotation)}" if rotation else ""
+    return (f"Pose {{ translation {vec(*translation)}{rot} children [ Shape {{ "
+            f"appearance {mat(color)} geometry Box {{ size {vec(*size)} }} }} ] }}")
+
+
+def _bbox(size, translation=(0, 0, 0)):
+    return f"Pose {{ translation {vec(*translation)} children [ Box {{ size {vec(*size)} }} ] }}"
+
+
+def _hub(radius, width, color, translation=(0, 0, 0)):
+    """Joint hub: cylinder whose axis is the robot y axis."""
+    return (f"Pose {{ translation {vec(*translation)} rotation 1 0 0 1.5708 children [ "
+            f"Shape {{ appearance {mat(color)} geometry Cylinder {{ height {f(width)} "
+            f"radius {f(radius)} subdivision 16 }} }} ] }}")
+
+
+def pitch_arm_vrml(indent="    "):
+    """Shoulder/elbow/wrist pitch arm + parallel gripper + latch (config section 13).
+
+    Kinematic structure (robot frame FLU, every hinge axis 0 -1 0 so a
+    positive angle LIFTS the link — same convention as arm_kinematics.py):
+
+        post (fixed) -> shoulder HingeJoint -> upper arm (clevis, 2 plates)
+          -> elbow HingeJoint -> forearm -> wrist HingeJoint -> gripper body
+             (palm plate, Connector "gripper_latch", DistanceSensor
+              "palm_range") -> 2 x SliderJoint fingers with force pads
+
+    Each link Solid's frame sits on its joint axis (endPoint translation ==
+    anchor), so the initial pose is simply rotation (0 -1 0 q). The arm is
+    generated in the STOW pose (q from inverse kinematics of ARM_STOW_TCP),
+    with matching joint positions, so the simulation starts stowed.
+    """
+    arm = PlanarPitchArm.from_config()
+    q = arm.inverse(*config.ARM_STOW_TCP, 0.0)
+    if q is None:
+        raise SystemExit("ARM_STOW_TCP is not reachable — check config section 13")
+    L1, L2 = config.ARM_UPPER_LEN, config.ARM_FORE_LEN
+    th = config.ARM_LINK_THICKNESS
+    gap = config.ARM_UPPER_PLATE_GAP
+    m_up, m_fore, m_grip = config.ARM_LINK_MASSES
+    steel, dark = COLORS["steel"], COLORS["sensor"]
+    lims = config.ARM_JOINT_LIMITS_RAD
+
+    def motor(i):
+        lo, hi = lims[i]
+        return (f"RotationalMotor {{ name \"{config.ARM_MOTOR_NAMES[i]}\" "
+                f"maxVelocity {f(config.ARM_JOINT_MAX_VEL[i])} "
+                f"maxTorque {f(config.ARM_JOINT_MAX_TORQUE[i])} "
+                f"minPosition {f(lo)} maxPosition {f(hi)} sound \"\" }}\n"
+                f"        PositionSensor {{ name \"{config.ARM_SENSOR_NAMES[i]}\" }}")
+
+    def hinge_params(i, anchor):
+        lo, hi = lims[i]
+        return (f"HingeJointParameters {{ axis 0 -1 0 anchor {vec(*anchor)} "
+                f"position {f(q[i])} minStop {f(lo - 0.05)} maxStop {f(hi + 0.05)} }}")
+
+    # ---------------------------------------------------------- gripper
+    w2p = config.GRIPPER_WRIST_TO_PALM
+    pt, pw, ph = config.GRIPPER_PALM_SIZE
+    fl, ft, fh = config.GRIPPER_FINGER_SIZE
+    pad_t = 0.004
+    finger_y = config.GRIPPER_OPEN_HALF_WIDTH + ft / 2.0 + pad_t
+    fx = w2p + fl / 2.0
+    travel = config.GRIPPER_FINGER_TRAVEL
+
+    def finger(side):
+        sgn = 1.0 if side == "left" else -1.0
+        idx = 0 if side == "left" else 1
+        pad_rot = (0, 0, 1, -1.5708 * sgn)      # pad x-axis = closing direction
+        pad_y = -sgn * (ft / 2.0 + pad_t / 2.0)
+        return f"""SliderJoint {{
+                jointParameters JointParameters {{ axis 0 {f(-sgn)} 0 minStop -0.002 maxStop {f(travel + 0.002)} }}
+                device [
+                  LinearMotor {{ name "{config.GRIPPER_FINGER_MOTOR_NAMES[idx]}" maxVelocity {f(config.GRIPPER_FINGER_MAX_VEL)} maxForce {f(config.GRIPPER_FINGER_MAX_FORCE)} minPosition 0 maxPosition {f(travel)} sound "" }}
+                  PositionSensor {{ name "{config.GRIPPER_FINGER_SENSOR_NAMES[idx]}" }}
+                ]
+                endPoint Solid {{
+                  translation {vec(fx, sgn * finger_y, 0)}
+                  children [
+                    Shape {{ appearance {mat(COLORS['gripper_red'])} geometry Box {{ size {vec(fl, ft, fh)} }} }}
+                    TouchSensor {{
+                      translation {vec(0, pad_y, 0)}
+                      rotation {vec(*pad_rot)}
+                      children [ Shape {{ appearance {mat(dark)} geometry Box {{ size {vec(pad_t, fl, fh)} }} }} ]
+                      name "{config.GRIPPER_FINGER_TOUCH_NAMES[idx]}"
+                      type "force"
+                      lookupTable [ 0 0 0, 1000 1000 0 ]
+                      contactMaterial "{PAD_MATERIAL}"
+                      boundingObject Box {{ size {vec(pad_t, fl, fh)} }}
+                      physics Physics {{ density -1 mass 0.005 }}
+                    }}
+                  ]
+                  name "finger_{side}"
+                  boundingObject Box {{ size {vec(fl, ft, fh)} }}
+                  physics Physics {{ density -1 mass {f(config.GRIPPER_FINGER_MASS)} }}
+                }}
+              }}"""
+
+    bracket = w2p - pt
+    gripper = f"""Solid {{
+              translation {vec(L2, 0, 0)}
+              rotation 0 -1 0 {f(q[2])}
+              children [
+                {_hub(0.02, 0.05, dark)}
+                {_box((bracket, 0.04, 0.04), steel, (bracket / 2.0, 0, 0))}
+                {_box((pt, pw, ph), dark, (w2p - pt / 2.0, 0, 0))}
+                Connector {{
+                  translation {vec(w2p, 0, 0)}
+                  name "{config.GRIPPER_CONNECTOR_NAME}"
+                  model "{config.CONNECTOR_MODEL}"
+                  type "active"
+                  autoLock FALSE
+                  unilateralLock TRUE
+                  unilateralUnlock TRUE
+                  distanceTolerance {f(config.CONNECTOR_DISTANCE_TOL)}
+                  axisTolerance {f(config.CONNECTOR_AXIS_TOL)}
+                  rotationTolerance {f(config.CONNECTOR_AXIS_TOL)}
+                  numberOfRotations 0
+                  snap FALSE
+                }}
+                DistanceSensor {{
+                  translation {vec(w2p + 0.0005, 0, 0)}
+                  name "{config.GRIPPER_PALM_RANGE_NAME}"
+                  type "generic"
+                  numberOfRays 1
+                  lookupTable [ 0 0 0, {f(config.GRIPPER_PALM_RANGE_MAX)} {f(config.GRIPPER_PALM_RANGE_MAX)} 0 ]
+                }}
+                {finger("left")}
+                {finger("right")}
+              ]
+              name "gripper"
+              boundingObject Group {{ children [ {_bbox((bracket, 0.04, 0.04), (bracket / 2.0, 0, 0))} {_bbox((pt, pw, ph), (w2p - pt / 2.0, 0, 0))} ] }}
+              physics Physics {{ density -1 mass {f(m_grip)} centerOfMass [ {vec(w2p * 0.7, 0, 0)} ] }}
+            }}"""
+
+    forearm = f"""Solid {{
+          translation {vec(L1, 0, 0)}
+          rotation 0 -1 0 {f(q[1])}
+          children [
+            {_hub(0.022, 0.05, dark)}
+            {_box((L2, 0.03, th), steel, (L2 / 2.0, 0, 0))}
+            HingeJoint {{
+              jointParameters {hinge_params(2, (L2, 0, 0))}
+              device [
+                {motor(2)}
+              ]
+              endPoint {gripper}
+            }}
+          ]
+          name "forearm"
+          boundingObject {_bbox((L2, 0.03, th), (L2 / 2.0, 0, 0))}
+          physics Physics {{ density -1 mass {f(m_fore)} centerOfMass [ {vec(L2 / 2.0, 0, 0)} ] }}
+        }}"""
+
+    plate_t = 0.012
+    upper = f"""Solid {{
+      translation {vec(config.ARM_BASE_X, 0, config.ARM_SHOULDER_Z)}
+      rotation 0 -1 0 {f(q[0])}
+      children [
+        {_hub(0.022, gap + plate_t, dark)}
+        {_box((L1 + 0.04, plate_t, th), steel, (L1 / 2.0, gap / 2.0, 0))}
+        {_box((L1 + 0.04, plate_t, th), steel, (L1 / 2.0, -gap / 2.0, 0))}
+        HingeJoint {{
+          jointParameters {hinge_params(1, (L1, 0, 0))}
+          device [
+            {motor(1)}
+          ]
+          endPoint {forearm}
+        }}
+      ]
+      name "upper_arm"
+      boundingObject Group {{ children [ {_bbox((L1, plate_t, th), (L1 / 2.0, gap / 2.0, 0))} {_bbox((L1, plate_t, th), (L1 / 2.0, -gap / 2.0, 0))} ] }}
+      physics Physics {{ density -1 mass {f(m_up)} centerOfMass [ {vec(L1 / 2.0, 0, 0)} ] }}
+    }}"""
+
+    return f"""{indent}HingeJoint {{
+      jointParameters {hinge_params(0, (config.ARM_BASE_X, 0, config.ARM_SHOULDER_Z))}
+      device [
+        {motor(0)}
+      ]
+      endPoint {upper}
+    }}"""
+
+
+def parcel_connectors():
+    """Passive latch on each vertical face of a parcel (x-axis pointing out)."""
+    h = config.PKG_SIZE / 2.0
+    faces = (("px", (h, 0, 0), 0.0), ("nx", (-h, 0, 0), 3.14159),
+             ("py", (0, h, 0), 1.5708), ("ny", (0, -h, 0), -1.5708))
+    out = []
+    for tag, t, yaw in faces:
+        out.append(f"""    Connector {{
+      translation {vec(*t)}
+      rotation 0 0 1 {f(yaw)}
+      name "latch_{tag}"
+      model "{config.CONNECTOR_MODEL}"
+      type "passive"
+      distanceTolerance {f(config.CONNECTOR_DISTANCE_TOL)}
+      axisTolerance {f(config.CONNECTOR_AXIS_TOL)}
+      rotationTolerance {f(config.CONNECTOR_AXIS_TOL)}
+      numberOfRotations 0
+      snap FALSE
+    }}""")
+    return "\n".join(out)
+
+
+def build_rack(rack):
+    """Warehouse-style destination rack (shelving.Rack), static, with collision.
+
+    Local frame: origin at the rack's floor centre; the open front faces -x.
+    Structure: 6 square uprights (front/back x 3 bay edges), one platform per
+    level, a front kick plate up to level 1 (the LiDAR plane hits it, which
+    gives docking an exact range reference) and a back panel. Thin dark strips
+    on the front edge mark every slot (visual only, no collision).
+    """
+    D = config.DEST_RACK_DEPTH
+    W = config.DEST_RACK_WIDTH
+    post = config.DEST_RACK_POST_SIZE
+    th = config.DEST_RACK_PLATFORM_THICKNESS
+    pt = config.DEST_RACK_PANEL_THICKNESS
+    tops = config.DEST_RACK_LEVEL_TOPS
+    H = tops[-1]
+    frame, shelf = config.DEST_RACK_FRAME_COLOR, config.DEST_RACK_SHELF_COLOR
+    ys = [-W / 2.0 + post / 2.0 + i * config.DEST_RACK_BAY_WIDTH
+          for i in range(config.DEST_RACK_BAYS + 1)]
+    shapes, bounds = [], []
+    for x in (-D / 2.0 + post / 2.0, D / 2.0 - post / 2.0):
+        for y in ys:
+            shapes.append(_box((post, post, H), frame, (x, y, H / 2.0)))
+            bounds.append(_bbox((post, post, H), (x, y, H / 2.0)))
+    for top in tops:
+        shapes.append(_box((D, W, th), shelf, (0, 0, top - th / 2.0)))
+        bounds.append(_bbox((D, W, th), (0, 0, top - th / 2.0)))
+    kick_h = tops[0] - th
+    shapes.append(_box((pt, W, kick_h), frame, (-D / 2.0 + pt / 2.0, 0, kick_h / 2.0)))
+    bounds.append(_bbox((pt, W, kick_h), (-D / 2.0 + pt / 2.0, 0, kick_h / 2.0)))
+    shapes.append(_box((pt, W, H), frame, (D / 2.0 - pt / 2.0, 0, H / 2.0)))
+    bounds.append(_bbox((pt, W, H), (D / 2.0 - pt / 2.0, 0, H / 2.0)))
+    cy = rack.center[1]
+    for slot in rack.slots:
+        if not slot.reachable:
+            continue
+        shapes.append(_box((0.004, 0.10, 0.012), COLORS["sensor"],
+                           (-D / 2.0 - 0.002, slot.center[1] - cy, slot.surface_z - th / 2.0)))
+    children = "\n    ".join(shapes)
+    bchildren = " ".join(bounds)
+    return (f"DEF {rack.def_name} Solid {{\n"
+            f"  translation {vec(rack.center[0], rack.center[1], 0)}\n"
+            f"  children [\n    {children}\n  ]\n"
+            f"  name \"{rack.def_name.lower()}\"\n"
+            f"  boundingObject Group {{ children [ {bchildren} ] }}\n"
+            f"}}\n")
 
 
 def mat(color):
@@ -84,8 +379,12 @@ def solid(defname, translation, size, color, physics=None, bounding=True):
 
 def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
                 start_pos=None, start_rot=None, controller_args=None,
-                body_color=None, has_arm=False):
-    """Generates differential-drive robot with optional 2R mobile manipulator arm."""
+                body_color=None, has_arm=False, with_arm=False):
+    """Differential-drive robot.
+
+    with_arm : mission robot's shoulder/elbow/wrist arm + gripper (config 13)
+    has_arm  : the v2 lift + SCARA design study (Phase 14, warehouse_v2.wbt)
+    """
     if start_pos is None:
         start_pos = (config.ROBOT_START[0], config.ROBOT_START[1], 0)
     if start_rot is None:
@@ -145,9 +444,6 @@ def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
       physics Physics {{ density -1 mass 0.02 }}
     }}"""
 
-    cam_vis = (f"Pose {{ translation -0.01 0 0 children [ Shape {{ appearance "
-               f"{mat(COLORS['sensor'])} geometry Box {{ size 0.02 0.04 0.03 }} }} ] }}")
-
     args_str = ""
     if controller_args:
         args_formatted = " ".join([f'"{a}"' for a in controller_args])
@@ -165,25 +461,9 @@ def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
       minRange {config.LIDAR_MIN_RANGE}
       maxRange {config.LIDAR_MAX_RANGE}
     }}""",
-        f"""    Camera {{
-      translation {config.CAMERA_MOUNT_X + 0.01} 0 {config.CAMERA_MOUNT_Z + 0.04}
-      children [ {cam_vis} ]
-      name "{config.CAMERA_NAME}"
-      fieldOfView {config.CAMERA_FOV}
-      width {config.CAMERA_WIDTH}
-      height {config.CAMERA_HEIGHT}
-      recognition Recognition {{ frameColor 0.93 0.83 0 }}
-    }}""",
-        f"""    Camera {{
-      translation {-config.CAMERA_MOUNT_X - 0.01} 0 {config.CAMERA_MOUNT_Z + 0.04}
-      rotation 0 0 1 3.14159265
-      children [ Pose {{ translation 0.01 0 0 children [ Shape {{ appearance {mat(COLORS['sensor'])} geometry Box {{ size 0.02 0.04 0.03 }} }} ] }} ]
-      name "{config.REAR_CAMERA_NAME}"
-      fieldOfView {getattr(config, 'REAR_CAMERA_FOV', config.CAMERA_FOV)}
-      width {config.CAMERA_WIDTH}
-      height {config.CAMERA_HEIGHT}
-      recognition Recognition {{ frameColor 0.93 0.83 0 }}
-    }}""",
+        camera_node(config.CAMERA_NAME, config.CAMERA_MOUNT_X, 0.0, config.CAMERA_FOV),
+        camera_node(config.REAR_CAMERA_NAME, config.REAR_CAMERA_MOUNT_X,
+                    config.REAR_CAMERA_YAW, config.REAR_CAMERA_FOV),
         f'    GPS {{ name "{config.GPS_NAME}" }}',
         f'    InertialUnit {{ name "{config.IMU_NAME}" }}',
         f'    LED {{ name "{config.LED_NAME}" }}',
@@ -224,9 +504,25 @@ def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
         wheel(-1),
     ]
 
+    robot_bounds = f"Pose {{ translation 0 0 {body_z} children [ Box {{ size {bl} {bw} {bh} }} ] }}"
+    physics = f"Physics {{ density -1 mass {body_mass} }}"
+    if with_arm:
+        # rear support post of the arm (part of the base) + the arm itself
+        post_h = config.ARM_SHOULDER_Z - (cr + bh)
+        post_c = (config.ARM_BASE_X, 0.0, cr + bh + post_h / 2.0)
+        post_s = (config.ARM_POST_SIZE, config.ARM_POST_SIZE, post_h)
+        children.append("    " + _box(post_s, COLORS["steel"], post_c))
+        children.append(pitch_arm_vrml())
+        robot_bounds = (f"Group {{ children [ {robot_bounds} {_bbox(post_s, post_c)} ] }}")
+        # counterweight folded into the base's mass and centre of mass
+        m = body_mass + config.ARM_COUNTERWEIGHT_MASS
+        com_x = config.ARM_COUNTERWEIGHT_MASS * config.ARM_COUNTERWEIGHT_X / m
+        physics = (f"Physics {{ density -1 mass {f(m)} "
+                   f"centerOfMass [ {vec(com_x, 0, body_z)} ] }}")
+
     # Mobile manipulator 2R arm (Phase 14)
     if has_arm:
-        arm_vrml = f"""    LinearJoint {{
+        arm_vrml = f"""    SliderJoint {{
       jointParameters JointParameters {{
         axis 0 0 1
         minStop 0.0
@@ -290,7 +586,7 @@ def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
                               lookupTable [ 0 1024 0, 0.25 0 0 ]
                               type "infra-red"
                             }}
-                            LinearJoint {{
+                            SliderJoint {{
                               jointParameters JointParameters {{ axis 0 1 0 minStop 0.0 maxStop 0.13 }}
                               device [
                                 LinearMotor {{ name "finger_motor_1" maxVelocity 0.1 maxForce 15 }}
@@ -311,7 +607,7 @@ def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
                                 physics Physics {{ density -1 mass 0.05 }}
                               }}
                             }}
-                            LinearJoint {{
+                            SliderJoint {{
                               jointParameters JointParameters {{ axis 0 -1 0 minStop 0.0 maxStop 0.13 }}
                               device [
                                 LinearMotor {{ name "finger_motor_2" maxVelocity 0.1 maxForce 15 }}
@@ -363,9 +659,8 @@ def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
 {children_str}
   ]
   name "{robot_name}"
-  boundingObject Pose {{ translation 0 0 {body_z} children [
-    Box {{ size {bl} {bw} {bh} }} ] }}
-  physics Physics {{ density -1 mass {body_mass} }}
+  boundingObject {robot_bounds}
+  physics {physics}
   controller "{controller}"
   supervisor TRUE
 }}"""
@@ -385,6 +680,7 @@ def build_world(controller):
              "  coordinateSystem \"ENU\"\n"
              "  contactProperties [\n"
              f"    ContactProperties {{ material2 \"{CASTER_MATERIAL}\" coulombFriction [ 0 ] }}\n"
+             f"    ContactProperties {{ material1 \"{PAD_MATERIAL}\" material2 \"{PARCEL_MATERIAL}\" coulombFriction [ 1.2 ] }}\n"
              "  ]\n"
              "}")
     w.append(f"DEF VIEWPOINT Viewpoint {{ orientation {VIEW_ANGLED[1]} "
@@ -455,12 +751,20 @@ def build_world(controller):
     pkg_rgb = {"red": "1 0 0", "green": "0 1 0", "blue": "0 0 1"}
     for defname, x, y, color in config.PACKAGES:
         body = solid(defname, f"{x} {y} {s / 2}", f"{s} {s} {s}",
-                     COLORS[color], physics="Physics { density -1 mass 0.5 }")
+                     COLORS[color],
+                     physics=f"Physics {{ density -1 mass {f(config.PKG_MASS)} }}")
         body = body.replace(
             f'name "{defname.lower()}"',
-            'model "%s"\n  recognitionColors [ %s ]\n  name "%s"'
-            % (defname, pkg_rgb[color], defname.lower()))
+            'model "%s"\n  recognitionColors [ %s ]\n  name "%s"\n  contactMaterial "%s"'
+            % (defname, pkg_rgb[color], defname.lower(), PARCEL_MATERIAL))
+        # passive latches (Connector) on the 4 vertical faces: any face the
+        # gripper approaches can be latched
+        body = body.replace("  ]\n", "\n" + parcel_connectors() + "\n  ]\n", 1)
         w.append(body)
+
+    # destination racks (one per dispatch zone, against the east wall)
+    for rack in shelving.build_racks().values():
+        w.append(build_rack(rack))
 
     # final-eval hook: dynamic obstacle, parked in a free corner off every route
     dx, dy = config.DYN_OBSTACLE_PARK
@@ -484,7 +788,7 @@ def build_world(controller):
     w.append(solid("FAST_CART", "1.6 1.2 0.15", "0.4 0.35 0.3",
                    COLORS["crate"], physics="Physics { density -1 mass 4.0 }"))
 
-    w.append(build_robot(controller))
+    w.append(build_robot(controller, with_arm=True))
     w.append("")
     return "\n".join(w)
 
@@ -517,7 +821,7 @@ def build_world_v2(controller="intellibot_controller"):
         "      coulombFriction [ 1.5 ]",
         "    }",
         "  ]",
-        '  coordinateSystem "NUE"',
+        '  coordinateSystem "ENU"',  # was "NUE" (y-up) but all data is z-up
         "}",
         "Viewpoint {",
         "  orientation 1 0 0 0.85",

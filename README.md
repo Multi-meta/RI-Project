@@ -228,7 +228,7 @@ fuses the LiDAR continuously into the dynamic layer of the grid
 (`dynamic_map.py`), replans with A* **from its current pose** when the route is
 blocked, it is displaced, it deviates, it is stuck or it bumps into something
 (`decision_maker.py`), and every command passes the speed governor
-(`safety.py`, cruise 0.45 m/s, stopping-distance limited). Details, root
+(`safety.py`, cruise 0.70 m/s / 0.50 m/s carrying, stopping-distance limited). Details, root
 causes and offline numbers: `docs/ankit_implementation_report.md`.
 
 ```bash
@@ -240,6 +240,37 @@ python tools/run_scenario.py --list                # Webots scenarios incl. A_* 
 
 Ablation switches (config or environment): `INTELLIBOT_LOC_MODE=ekf|odom|gps`,
 `INTELLIBOT_GOVERNOR=0|1`, `INTELLIBOT_DYN_REPLAN=0|1`.
+
+### Moving obstacles
+`moving_obstacles.py` drives them **kinematically** from the supervisor (pose
+written each step, no Physics node), so they can't be shoved off their lanes,
+can't freeze when the physics engine puts them to sleep, and never push the
+robot with force:
+* `DECOY_BOT` — a yellow look-alike robot (body, wheels, casters, LiDAR puck,
+  camera bar, beacon; **no** controller, arm or gripper). It shuttles along
+  x = −1.5, y ∈ [−1.20, 0.15] across the start → pickup route and turns round at
+  each end. When IntelliBot is ahead of it, it stops with the beacon flashing
+  (it gives way); if the robot still hasn't passed after 4 s, it backs up 0.45 m
+  and waits. IntelliBot is told none of this; it sees an obstacle on LiDAR and
+  cameras and yields or replans as usual. Settings: `config.DECOY_*`.
+* `CART_1` (patrol, y = 2.4) and `CART_2` (cross aisle, x = 0.72) use the same
+  give-way logic without turning. The brown `FAST_CART` was removed.
+
+### Fault injection (sensor-fusion tests)
+`fault_injector.py` applies faults the robot only sees as degraded sensor data:
+`lights_dim`, `lights_off`, `smoke` (Webots Fog for the cameras + LiDAR
+absorption/backscatter), `gps_dropout`, `gps_bias`, `imu_bias`,
+`lidar_dropout`, `lidar_sector`, `wheel_slip`, `camera_blind`.
+```bash
+python tools/run_scenario.py --list | grep "^F"                 # F1..F10 fault scenarios
+python tools/run_scenario.py F3_smoke_P3_B
+python tools/run_scenario.py S1_store_P3_B --faults "lights_off@20+30,gps_dropout@40+15"
+INTELLIBOT_FAULTS="smoke@20+40:0.8" webots worlds/warehouse.wbt  # spec: type@start[+duration][:param]
+```
+In the GUI the hotkeys printed at start-up toggle faults live (click the 3D view
+first). Effects show in `logs/run.csv` (`loc_status`, `sigma_xy`,
+`lidar_health`, `faults`, `cap_reason`), in `logs/mission_report.json["faults"]`
+and on the dashboard. Every run's console is mirrored to `logs/console.log`.
 
 ## Known limitations (honest list)
 

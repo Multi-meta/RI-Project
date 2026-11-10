@@ -89,3 +89,20 @@ def test_robot_carries_counterweight_and_post_collision():
     assert float(m.group(1)) == pytest.approx(config.BODY_MASS + config.ARM_COUNTERWEIGHT_MASS)
     assert float(m.group(2)) < 0                                    # COM shifted to the rear
     assert re.search(r"\n  boundingObject Group \{ children \[ Pose \{ translation 0 0", robot)
+
+
+def test_brown_fast_cart_removed_other_dynamic_obstacles_kept():
+    """The dark-brown FAST_CART block (moved across the delivery route) is
+    gone from the generated worlds and from the controller; the sphere, the
+    two carts, the parked DYN_OBSTACLE and the static crates remain."""
+    text = generate_world.build_world("intellibot_controller")
+    assert "FAST_CART" not in text and "fast_cart" not in text
+    for d in ("FAST_SPHERE", "CART_1", "CART_2", config.DYN_OBSTACLE_DEF, "OBST_3"):
+        assert f"DEF {d} " in text
+    assert not hasattr(config, "FAST_CART_DEF")
+    root = os.path.join(os.path.dirname(__file__), "..", "worlds")
+    for name in ("warehouse.wbt", "warehouse_drive_test.wbt", "warehouse_manip_check.wbt"):
+        assert "FAST_CART" not in open(os.path.join(root, name)).read()
+    src = open(os.path.join(os.path.dirname(__file__), "..", "controllers",
+                            "intellibot_controller", "intellibot_controller.py")).read()
+    assert "FAST_CART" not in src and "fast_cart" not in src

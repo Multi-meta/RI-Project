@@ -304,12 +304,11 @@ def main():
 
 
     cart1_node, cart2_node = None, None
-    fast_sphere_node, fast_cart_node = None, None
+    fast_sphere_node = None
     try:
         cart1_node = robot.getFromDef("CART_1")
         cart2_node = robot.getFromDef("CART_2")
         fast_sphere_node = robot.getFromDef(getattr(config, "FAST_SPHERE_DEF", "FAST_SPHERE"))
-        fast_cart_node = robot.getFromDef(getattr(config, "FAST_CART_DEF", "FAST_CART"))
     except Exception:
         pass
 
@@ -423,10 +422,6 @@ def main():
         # (speed x half period = the same 2.625 m sweep as before)
         if fast_sphere_node is not None:
             fast_sphere_node.setVelocity([0.0, fast_sphere_vy(sim_time), 0.0, 0.0, 0.0, 0.0])
-        if fast_cart_node is not None:
-            c_speed = getattr(config, "FAST_CART_SPEED", 0.70)
-            c_vy = c_speed if (int(sim_time / 4.0) % 2 == 0) else -c_speed
-            fast_cart_node.setVelocity([0.0, c_vy, 0.0, 0.0, 0.0, 0.0])
 
         # ---- bumpers: a collision EVENT on the rising edge (not every step)
         for key, dev, front in (("f", bumper_f, True), ("r", bumper_r, False)):

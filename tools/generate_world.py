@@ -776,7 +776,8 @@ def build_world(controller):
                    COLORS["cart_1"], physics="Physics { density -1 mass 4.0 }"))
     w.append(solid("CART_2", "0.8 -2.4 0.15", "0.4 0.4 0.3",
                    COLORS["cart_2"], physics="Physics { density -1 mass 4.0 }"))
-    # Fast moving obstacles (one sphere, one cart) between source and destination
+    # Fast moving sphere between source and destination (the dark-brown
+    # FAST_CART block on the delivery route was removed on request)
     w.append(f'DEF FAST_SPHERE Solid {{\n'
              f'  translation -1.5 -1.2 0.22\n'
              f'  children [ Shape {{ appearance {mat(COLORS["ball"])} '
@@ -785,8 +786,6 @@ def build_world(controller):
              f'  boundingObject Sphere {{ radius 0.22 subdivision 4 }}\n'
              f'  physics Physics {{ density -1 mass 3.0 }}\n'
              f'}}\n')
-    w.append(solid("FAST_CART", "1.6 1.2 0.15", "0.4 0.35 0.3",
-                   COLORS["crate"], physics="Physics { density -1 mass 4.0 }"))
 
     w.append(build_robot(controller, with_arm=True))
     w.append("")

@@ -253,3 +253,9 @@ class RackOccupancy:
 
     def free(self, slot_id: str):
         self.occupied.pop(slot_id, None)
+
+    def summary(self) -> str:
+        """Short text for the dashboard: filled / blocked slots."""
+        if not self.occupied:
+            return "all slots free"
+        return " ".join(f"{k}={v}" for k, v in sorted(self.occupied.items()))

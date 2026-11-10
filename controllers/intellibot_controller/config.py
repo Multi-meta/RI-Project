@@ -187,6 +187,37 @@ SLOWDOWN_DIST = 0.50                          # m, begin slowing near waypoint
 TURN_IN_PLACE_THRESH = 0.6                    # rad, rotate first if worse
 STOP_DIST = 0.30                              # m, LiDAR safety stop
 
+# --- dynamic_map.DynamicObstacleMap + replanning (decision_maker) --------
+DYNAMIC_REPLANNING_ENABLED = True             # False = legacy (single-ray mark on safety stop)
+DYN_MAP_RATE_HZ = 10.0                        # LiDAR fusion rate into the dynamic layer
+DYN_MAP_MAX_RANGE = 3.0                       # m, rays used for marking / clearing
+DYN_HIT_GAIN = 1.0                            # evidence per hit
+DYN_MISS_LOSS = 1.0                           # evidence lost when a ray passes through
+DYN_OCCUPIED_LEVEL = 2.0                      # evidence for "occupied" (two hits)
+DYN_MAX_EVIDENCE = 4.0                        # cap (a moved obstacle clears in <= 4 scans)
+DYN_TTL = 30.0                                # s, unobserved evidence expires
+DYN_MOVING_WINDOW = 2.0                       # s, cells vacated this recently = moving obstacle
+DYN_LANE_WINDOW = 6.0                         # s, recently vacated cells = lane of a moving obstacle
+DYN_LANE_RADIUS = 2.0                         # m, moving obstacles considered around a lane crossing
+DYN_LANE_CLEAR_DIST = 0.5                     # m, moving obstacle closer than this to the crossing -> wait
+DYN_LANE_LOOKAHEAD = 1.0                      # m, only crossings this close ahead are checked
+DYN_LANE_MAX_WAIT = 8.0                       # s at a crossing before committing (no deadlock)
+DYN_LANE_COMMIT = 5.0                         # s without lane checks after committing / resuming
+DYN_CLEAR_HOLD = 1.0                          # s the route must stay clear before resuming
+COLLISION_ESCAPE_DIST = 0.12                  # m moved away from a bumper contact (side verified clear)
+DYN_YIELD_TIME = 4.0                          # s to wait for a MOVING obstacle before detouring
+REPLAN_COOLDOWN = 1.0                         # s between two replans (except pose jumps)
+REPLAN_LOOKAHEAD = 1.5                        # m of route checked ahead of the robot
+REPLAN_DEVIATION_MAX = 0.60                   # m off the route -> replan
+STUCK_TIME = 5.0                              # s commanding motion without progress -> stuck
+STUCK_MIN_PROGRESS = 0.05                     # m
+SAFE_START_RADIUS = 0.60                      # m, search for a free start cell around the robot
+NAV_MAX_RECOVERIES = 4                        # recovery cycles per navigation goal before ERROR
+RECOVERY_BACKUP_DIST = 0.25                   # m, only with the rear verified clear
+RECOVERY_REAR_CLEAR = 0.45                    # m, rear corridor clearance needed to back up
+ROBOT_SWEEP_RADIUS = 0.24                     # m, body + stowed parcel swept when turning in place
+RECOVERY_ROTATE_CLEAR = 0.08                  # m, min clearance around the body to rotate
+
 # --- safety.SpeedGovernor (dynamic speed limit; docs/ankit_implementation_report.md)
 SPEED_GOVERNOR_ENABLED = True                 # False = legacy fixed V_MAX (ablation)
 V_CRUISE = 0.45                               # m/s, governed cruise (was a fixed 0.30)

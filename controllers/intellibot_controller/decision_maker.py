@@ -51,11 +51,19 @@ Pathfinding fix:
 import math
 import threading
 
+import numpy as np
+
 import config
 from waypoint_follower import WaypointFollower
 from logger import transition
 import shelving
 from docking import Docker
+from recovery_behaviors import RecoveryBehavior, RecoveryConfig, RecoveryState
+from safety import corridor_clearance
+
+# states in which the base follows a planned route (speed governor in NAV
+# mode, dynamic replanning active)
+NAV_STATES = ("NAVIGATE", "DELIVER", "RETURN_TO_CENTER")
 
 
 # --------------------------------------------------------------------- helpers
@@ -111,7 +119,8 @@ def _safe_approach_pose(px, py, rx, ry, approach_dist, grid):
 
 class DecisionMaker:
     def __init__(self, planner, estimator, grid=None, log=transition,
-                 input_callback=None, manipulator=None, kinematics=None):
+                 input_callback=None, manipulator=None, kinematics=None,
+                 obstacle_map=None, governor=None):
         self.planner = planner          # callable -> (waypoints, info)
         # Mobile manipulator (pick_place.PickPlaceController) — None = legacy
         # placeholder pickup (no arm in the world).
@@ -156,11 +165,91 @@ class DecisionMaker:
         self._awaiting_input = False
         self._input_ready = False
 
+        # Dynamic navigation (dynamic_map.DynamicObstacleMap) and the speed
+        # governor (safety.SpeedGovernor). None = legacy behaviour.
+        self.obstacle_map = obstacle_map
+        self.governor = governor
+        self.health = {}                # set by the controller each step
+        self.nav_goal = None
+        self.replan_events = []         # [{t, reason, from, ok, ...}]
+        self.replan_reasons = {}
+        self._last_replan_t = -1e9
+        self._pending_jump = None
+        self._pending_collision = None
+        self._recovery = None
+        self.recoveries = 0
+        self._nav_recoveries = 0
+        self._progress_ref = None
+        self._last_cmd = (0.0, 0.0)
+        self._urgent = False
+        self._last_safety_stop = None
+        self._blocked_start_time = None
+        self._dyn_infl = None
+        self._dyn_infl_stamp = -1
+        self._dyn_yield_since = None
+        self._dyn_clear_since = None
+        self._yield_kind = None
+        self._lane_override_until = -1e9
+        self._lane_hist = []
+
     # ------------------------------------------------------------------ api
     def update(self, pose, scan, angles, detections, sim_time, dt):
-        """One control step. Returns (v, w) body command."""
+        """One control step. Returns (v, w) body command (speed-governed)."""
+        if self.state in NAV_STATES and self.obstacle_map is not None:
+            keep_out = []
+            if self.state == "NAVIGATE" and self.pkg_pos is not None:
+                # the target parcel is approached on purpose — not an obstacle
+                keep_out.append((self.pkg_pos[0], self.pkg_pos[1],
+                                 config.PKG_SIZE * 0.75 + 0.05))
+            self.obstacle_map.update(pose, scan, angles, sim_time, keep_out=keep_out,
+                                     trusted=self.health.get("loc_ok", True))
         handler = getattr(self, f"_do_{self.state.lower()}")
-        return handler(pose, scan, angles, detections, sim_time, dt)
+        self._urgent = False
+        v, w = handler(pose, scan, angles, detections, sim_time, dt)
+        if self.state.startswith(("ARM_", "VERIFY_")):
+            # the arm moves only with the base STOPPED: exact zero, no
+            # deceleration ramp carried over from docking
+            if self.governor is not None:
+                self.governor.reset()
+            self._last_cmd = (0.0, 0.0)
+            return 0.0, 0.0
+        if self.governor is not None:
+            goal_dist = None
+            if self.state in NAV_STATES and self.follower is not None:
+                goal_dist = self.follower.remaining_length(pose)
+            mode = "NAV" if self.state in NAV_STATES else "DOCK"
+            v, w = self.governor.limit(v, w, dt, scan, angles, mode=mode,
+                                       health=self.health, carrying=self.carrying,
+                                       goal_dist=goal_dist, urgent=self._urgent)
+        self._last_cmd = (v, w)
+        return v, w
+
+    # ------------------------------------------------- events from the robot
+    def notify_pose_jump(self, jump, sim_time):
+        """Localisation re-initialised (robot displaced): replan from the new
+        pose at the next navigation step."""
+        self._pending_jump = (jump, sim_time)
+
+    def notify_collision(self, front, sim_time):
+        """Bumper contact: stop, recover, replan (navigation states only)."""
+        if self.state in NAV_STATES:
+            self._pending_collision = (front, sim_time)
+
+    def _begin_goal(self):
+        """New navigation goal: fresh recovery budget, no stale events."""
+        self._escape = None
+        self._last_safety_stop = None
+        self._nav_recoveries = 0
+        self._recovery = None
+        self._pending_collision = None
+        self._blocked_start_time = None
+        self._dyn_yield_since = None
+
+    def _new_follower(self, wps):
+        v_max = config.V_CRUISE if self.governor is not None and self.governor.enabled else None
+        self.follower = WaypointFollower(wps, v_max=v_max)
+        self._progress_ref = None
+        return self.follower
 
     def _set_state(self, new, sim_time):
         old = self.state
@@ -283,6 +372,7 @@ class DecisionMaker:
             self.log(f"[t={sim_time:.1f}s] Package at ({px:.2f},{py:.2f}), "
                      f"approach pose ({self.approach_pose[0]:.2f},{self.approach_pose[1]:.2f})")
 
+            self._begin_goal()
             wps, info = self.planner((rx, ry), self.approach_pose)
             self.last_info = info
             if wps is None:
@@ -290,7 +380,7 @@ class DecisionMaker:
                 self.log("ERROR: no path to package approach pose")
                 return 0.0, 0.0
             self.path_length_total += info.get("length_m", 0.0)
-            self.follower = WaypointFollower(wps)
+            self._new_follower(wps)
             self.log(f"[t={sim_time:.1f}s] A* path: {info.get('n_waypoints', '?')} "
                      f"waypoints, {info.get('length_m', 0):.2f} m, "
                      f"{info.get('runtime_ms', 0):.1f} ms, "
@@ -306,6 +396,9 @@ class DecisionMaker:
             self._blocked_start_time = None
             return self._arrived_at_parcel(sim_time)
 
+        handled = self._nav_monitor(pose, scan, angles, self.approach_pose, sim_time, dt)
+        if handled is not None:
+            return handled
         v, w = self.follower.update(pose, scan, angles)
         if self.follower.status == "REACHED":
             self.follower = None
@@ -317,8 +410,389 @@ class DecisionMaker:
             self._blocked_start_time = None
         return v, w
 
+    # ======================================================= dynamic replanning
+    #
+    # Every navigation step (NAVIGATE / DELIVER / RETURN_TO_CENTER):
+    #   1. the LiDAR is fused into the dynamic layer (update() above);
+    #   2. _nav_monitor() checks the triggers below and, when one fires,
+    #      replans with A* FROM THE CURRENT ESTIMATED POSE to the SAME final
+    #      goal (new WaypointFollower = waypoint index and heading PID reset);
+    #   3. the follower's own LiDAR stop (BLOCKED) goes through
+    #      _handle_blocked(): yield -> replan -> recovery.
+    # Triggers: verified obstacle in the route corridor ahead, deviation from
+    # the route, no progress (stuck), bumper collision, localisation pose
+    # jump (robot displaced). A cooldown stops replan thrashing (pose jumps
+    # and collisions bypass it). If no path exists from the current pose,
+    # the recovery FSM runs: WAIT -> ROTATE (only if the swept circle is
+    # clear) -> BACK UP (only if the rear is verified clear) -> REPLAN,
+    # bounded by NAV_MAX_RECOVERIES, then ERROR with the reason.
+
+    def _nav_monitor(self, pose, scan, angles, goal, sim_time, dt):
+        """Returns (v, w) when it handled this step, None to keep following."""
+        if self.follower is None:
+            return None
+        if self._recovery is not None:
+            return self._recovery_step(pose, scan, angles, goal, sim_time, dt)
+        if self._pending_collision is not None:
+            front, _t = self._pending_collision
+            self._pending_collision = None
+            self._urgent = True
+            self.log(f"[t={sim_time:.1f}s] COLLISION ({'front' if front else 'rear'} "
+                     f"bumper) — stopping, recovering, then replanning")
+            self._count_reason("COLLISION")
+            self._start_recovery(sim_time, "COLLISION")
+            # first move a few cm AWAY from the contact (only if that side is
+            # verified clear), then the normal recovery sequence
+            self._escape = {"dir": -1.0 if front else 1.0, "start": (pose[0], pose[1]),
+                            "t0": sim_time}
+            return 0.0, 0.0
+        if self._pending_jump is not None:
+            (dx, dy, dth), _t = self._pending_jump
+            self._pending_jump = None
+            self.log(f"[t={sim_time:.1f}s] Robot displaced by ({dx:+.2f}, {dy:+.2f}) m "
+                     f"— replanning from the CURRENT pose")
+            return self._replan(pose, goal, "POSE_JUMP", sim_time, bypass_cooldown=True)
+        if self.obstacle_map is None:
+            return None
+        cooled = sim_time - self._last_replan_t >= config.REPLAN_COOLDOWN
+        blocked_at = self._route_blocked(pose)
+        moving_block = (blocked_at is not None and self.obstacle_map.moving_near(
+            blocked_at[0], blocked_at[1], 0.6, sim_time))
+        lane = None
+        if blocked_at is None and sim_time >= self._lane_override_until:
+            # route free right now — but it crosses the lane of a MOVING
+            # obstacle (a bouncing cart) that is close to / coming towards it?
+            lane = self._lane_conflict(pose, sim_time)
+        if moving_block or lane is not None:
+            kind = "block" if moving_block else "lane"
+            if self._dyn_yield_since is None or self._yield_kind != kind:
+                self._dyn_yield_since, self._yield_kind = sim_time, kind
+                where = blocked_at if moving_block else lane
+                self.log(f"[t={sim_time:.1f}s] MOVING obstacle "
+                         f"{'on the route' if moving_block else 'approaching the route crossing'}"
+                         f" at ({where[0]:.2f}, {where[1]:.2f}) — braking and yielding")
+            self._dyn_clear_since = None
+            waited = sim_time - self._dyn_yield_since
+            if moving_block:
+                if waited < config.DYN_YIELD_TIME:
+                    return 0.0, 0.0
+                self.log(f"[t={sim_time:.1f}s] Moving obstacle still on the route after "
+                         f"{config.DYN_YIELD_TIME:.0f} s — replanning around it")
+                self._dyn_yield_since = None
+                self.log(f"[t={sim_time:.1f}s] Current path BLOCKED at waypoint {self.follower.idx}")
+                return self._replan(pose, goal, "DYNAMIC_BLOCKED", sim_time)
+            if waited < config.DYN_LANE_MAX_WAIT:
+                return 0.0, 0.0
+            # never deadlock: commit to the crossing (the governor and the
+            # follower's LiDAR stop still protect the robot)
+            self.log(f"[t={sim_time:.1f}s] Waited {waited:.0f} s at the crossing — "
+                     f"crossing now (lane checks paused {config.DYN_LANE_COMMIT:.0f} s)")
+            self._lane_override_until = sim_time + config.DYN_LANE_COMMIT
+            self._dyn_yield_since = None
+        elif self._dyn_yield_since is not None:
+            if self._yield_kind == "block":
+                # hysteresis: the route must stay clear for DYN_CLEAR_HOLD
+                if self._dyn_clear_since is None:
+                    self._dyn_clear_since = sim_time
+                if sim_time - self._dyn_clear_since < config.DYN_CLEAR_HOLD:
+                    return 0.0, 0.0
+            self.log(f"[t={sim_time:.1f}s] Moving obstacle clear "
+                     f"({sim_time - self._dyn_yield_since:.1f} s) — resuming")
+            self._dyn_yield_since = None
+            self._dyn_clear_since = None
+        if blocked_at is not None and cooled:
+            self.log(f"[t={sim_time:.1f}s] OBSTACLE DETECTED on the route at "
+                     f"({blocked_at[0]:.2f}, {blocked_at[1]:.2f}) "
+                     f"{math.hypot(blocked_at[0] - pose[0], blocked_at[1] - pose[1]):.2f} m ahead")
+            self.log(f"[t={sim_time:.1f}s] Current path BLOCKED at waypoint {self.follower.idx}")
+            return self._replan(pose, goal, "PATH_BLOCKED", sim_time)
+        if self.follower.cross_track_err > config.REPLAN_DEVIATION_MAX and cooled:
+            self.log(f"[t={sim_time:.1f}s] Off the route by "
+                     f"{self.follower.cross_track_err:.2f} m")
+            return self._replan(pose, goal, "DEVIATION", sim_time)
+        if self._stuck(pose, sim_time) and cooled:
+            self.log(f"[t={sim_time:.1f}s] STUCK: no progress for {config.STUCK_TIME:.0f} s")
+            self._count_reason("STUCK")
+            self._start_recovery(sim_time, "STUCK")
+            return 0.0, 0.0
+        return None
+
+    def _count_reason(self, reason):
+        self.replan_reasons[reason] = self.replan_reasons.get(reason, 0) + 1
+
+    def _stuck(self, pose, sim_time):
+        moving = abs(self._last_cmd[0]) > 0.05
+        if self._progress_ref is None or not moving:
+            self._progress_ref = (sim_time, pose[0], pose[1])
+            return False
+        t0, x0, y0 = self._progress_ref
+        if math.hypot(pose[0] - x0, pose[1] - y0) > config.STUCK_MIN_PROGRESS:
+            self._progress_ref = (sim_time, pose[0], pose[1])
+            return False
+        if sim_time - t0 > config.STUCK_TIME:
+            self._progress_ref = (sim_time, pose[0], pose[1])
+            return True
+        return False
+
+    def _dynamic_inflated(self):
+        """Dynamic layer grown by the robot radius (cached per map update)."""
+        om = self.obstacle_map
+        if self._dyn_infl is not None and self._dyn_infl_stamp == om.updates:
+            return self._dyn_infl
+        g = self.grid
+        dyn = g.dynamic
+        n = int(math.ceil(config.ROBOT_RADIUS / g.res))
+        out = dyn.copy()
+        for dr in range(-n, n + 1):
+            for dc in range(-n, n + 1):
+                if dr * dr + dc * dc > n * n or (dr == 0 and dc == 0):
+                    continue
+                sh = np.zeros_like(dyn)
+                sh[max(-dr, 0):g.n_rows + min(-dr, 0), max(-dc, 0):g.n_cols + min(-dc, 0)] = \
+                    dyn[max(dr, 0):g.n_rows + min(dr, 0), max(dc, 0):g.n_cols + min(dc, 0)]
+                out |= sh
+        self._dyn_infl, self._dyn_infl_stamp = out, om.updates
+        return out
+
+    def _route_points(self, pose, lookahead):
+        fol = self.follower
+        pts = [(pose[0], pose[1])] + list(fol.waypoints[min(fol.idx, len(fol.waypoints) - 1):])
+        out, travelled = [], 0.0
+        step = self.grid.res * 0.5
+        for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
+            seg = math.hypot(bx - ax, by - ay)
+            n = max(1, int(math.ceil(seg / step)))
+            for k in range(1, n + 1):
+                f = k / n
+                d = travelled + seg * f
+                if d > lookahead:
+                    return out
+                out.append((ax + (bx - ax) * f, ay + (by - ay) * f, d))
+            travelled += seg
+        return out
+
+    def _lane_conflict(self, pose, sim_time):
+        """First route point inside the recently swept lane of a MOVING
+        obstacle while that obstacle is close to it or approaching it."""
+        om = self.obstacle_map
+        if self.follower is None or not self.follower.waypoints:
+            return None
+        lane = (sim_time - om.last_cleared) <= config.DYN_LANE_WINDOW
+        if not lane.any():
+            self._lane_hist = []
+            return None
+        occ_r, occ_c = np.nonzero(om.evidence_occupied())
+        if occ_r.size == 0:
+            self._lane_hist = []
+            return None
+        ox = self.grid.x_min + (occ_c + 0.5) * self.grid.res
+        oy = self.grid.y_min + (occ_r + 0.5) * self.grid.res
+        cross = None
+        n = int(math.ceil(config.ROBOT_RADIUS / self.grid.res))
+        rr, rc = self.grid.world_to_cell(pose[0], pose[1])
+        if lane[max(0, rr - n):rr + n + 1, max(0, rc - n):rc + n + 1].any():
+            return None        # already inside the lane: never stop there, keep going
+        for px, py, d in self._route_points(pose, config.DYN_LANE_LOOKAHEAD):
+            r, c = self.grid.world_to_cell(px, py)
+            r0, r1 = max(0, r - n), min(self.grid.n_rows, r + n + 1)
+            c0, c1 = max(0, c - n), min(self.grid.n_cols, c + n + 1)
+            if r0 < r1 and c0 < c1 and lane[r0:r1, c0:c1].any():
+                cross = (px, py)
+                break
+        if cross is None:
+            self._lane_hist = []
+            return None
+        dist = np.hypot(ox - cross[0], oy - cross[1])
+        near = dist <= config.DYN_LANE_RADIUS
+        if not near.any():
+            self._lane_hist = []
+            return None
+        dmin = float(dist[near].min())
+        hist = [(t, d) for (t, d) in self._lane_hist if sim_time - t <= 1.0] + [(sim_time, dmin)]
+        self._lane_hist = hist
+        closing = 0.0
+        if len(hist) >= 2 and hist[-1][0] - hist[0][0] > 0.2:
+            closing = -(hist[-1][1] - hist[0][1]) / (hist[-1][0] - hist[0][0])
+        if dmin < config.DYN_LANE_CLEAR_DIST:
+            return cross
+        if closing > 0.05:
+            # will it reach the crossing before the robot has cleared it?
+            d_robot = math.hypot(cross[0] - pose[0], cross[1] - pose[1])
+            t_robot = (d_robot + config.BODY_LENGTH + 2 * config.ROBOT_RADIUS) / max(
+                config.V_CRUISE * 0.7, 0.05)
+            if (dmin - config.DYN_LANE_CLEAR_DIST) / closing < t_robot:
+                return cross
+        return None
+
+    def _route_blocked(self, pose):
+        """First point of the route (next REPLAN_LOOKAHEAD m) inside a dynamic
+        obstacle grown by the robot radius, or None. Points inside the robot's
+        own footprint are ignored."""
+        fol = self.follower
+        if fol is None or not fol.waypoints or self.grid is None:
+            return None
+        occ = self._dynamic_inflated()
+        if not occ.any():
+            return None
+        pts = [(pose[0], pose[1])] + list(fol.waypoints[min(fol.idx, len(fol.waypoints) - 1):])
+        travelled = 0.0
+        step = self.grid.res * 0.5
+        for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
+            seg = math.hypot(bx - ax, by - ay)
+            n = max(1, int(math.ceil(seg / step)))
+            for k in range(1, n + 1):
+                f = k / n
+                px, py = ax + (bx - ax) * f, ay + (by - ay) * f
+                d = travelled + seg * f
+                if d > config.REPLAN_LOOKAHEAD:
+                    return None
+                if d < config.ROBOT_RADIUS:
+                    continue
+                r, c = self.grid.world_to_cell(px, py)
+                if self.grid.in_bounds(r, c) and occ[r, c]:
+                    return px, py
+            travelled += seg
+        return None
+
+    def _replan(self, pose, goal, reason, sim_time, bypass_cooldown=False):
+        """A* from the CURRENT pose to the SAME goal; recovery if impossible."""
+        self._count_reason(reason)
+        self.log(f"[t={sim_time:.1f}s] REPLANNING from ({pose[0]:.2f}, "
+                 f"{pose[1]:.2f}) to ({goal[0]:.2f}, {goal[1]:.2f}) [trigger {reason}]...")
+        wps, info = self.planner((pose[0], pose[1]), goal)
+        self._last_replan_t = sim_time
+        event = dict(t=round(sim_time, 2), reason=reason,
+                     start=(round(pose[0], 3), round(pose[1], 3)),
+                     goal=(round(goal[0], 3), round(goal[1], 3)),
+                     ok=wps is not None and len(wps) > 0,
+                     start_shift_m=round(info.get("start_shift_m", 0.0), 3),
+                     why=info.get("reason", ""))
+        self.replan_events.append(event)
+        if event["ok"]:
+            self.replans += 1
+            self.path_length_total += info.get("length_m", 0.0)
+            self._new_follower(wps)
+            self.last_info = info
+            self._blocked_start_time = None
+            shift = info.get("start_shift_m", 0.0)
+            note = (f", start moved {shift:.2f} m out of the inflated obstacle "
+                    f"(straight move verified collision-free)" if shift > 0 else "")
+            self.log(f"[t={sim_time:.1f}s] REPLAN SUCCESS: {info.get('n_waypoints', '?')} "
+                     f"waypoints, length {info.get('length_m', 0):.2f} m, took "
+                     f"{info.get('runtime_ms', 0):.1f} ms{note}")
+            return 0.0, 0.0
+        self.log(f"[t={sim_time:.1f}s] REPLAN FAILED: {info.get('reason', 'no path found')}")
+        if self._nav_recoveries >= config.NAV_MAX_RECOVERIES:
+            self.follower = None
+            self.failure_reason = (f"NAVIGATION_FAILED: no path after "
+                                   f"{self._nav_recoveries} recoveries ({reason})")
+            self.log(f"ERROR: {self.failure_reason}")
+            self._set_state("ERROR", sim_time)
+            return 0.0, 0.0
+        self._start_recovery(sim_time, f"REPLAN_FAILED/{reason}")
+        return 0.0, 0.0
+
+    def _start_recovery(self, sim_time, why):
+        self._nav_recoveries += 1
+        self.recoveries += 1
+        cfg = RecoveryConfig(wait_timeout=1.5, rotate_timeout=4.0, backup_timeout=4.0,
+                             replan_attempts=3, rotate_speed=0.5,
+                             backup_speed=0.08,
+                             backup_distance=config.RECOVERY_BACKUP_DIST,
+                             # "no path" is not fixed by a clear front: run the
+                             # full wait (map clears / obstacle moves), the full
+                             # rotation and the backup before trying again
+                             min_front_clearance=(math.inf if why.startswith("REPLAN_FAILED")
+                                                  else 0.35),
+                             min_rear_clearance=config.RECOVERY_BACKUP_DIST
+                             + config.SAFETY_STOP_MARGIN)
+        clock_t = {"t": sim_time}
+        self._recovery = RecoveryBehavior(cfg, clock=lambda: clock_t["t"])
+        self._recovery_clock = clock_t
+        self._recovery.trigger()
+        self._recovery_why = why
+        self.log(f"[t={sim_time:.1f}s] RECOVERY start ({why}) — "
+                 f"{self._nav_recoveries}/{config.NAV_MAX_RECOVERIES}: wait -> rotate "
+                 f"if safe -> back up only if rear verified clear -> replan")
+
+    def _recovery_step(self, pose, scan, angles, goal, sim_time, dt):
+        rec = self._recovery
+        self._recovery_clock["t"] = sim_time
+        front = corridor_clearance(scan, angles, reverse=False)
+        rear = corridor_clearance(scan, angles, reverse=True)
+        rear_verified = self._rear_verified(scan, angles)
+        esc = getattr(self, "_escape", None)
+        if esc is not None:
+            moved = math.hypot(pose[0] - esc["start"][0], pose[1] - esc["start"][1])
+            side_clear = (rear_verified and rear > config.COLLISION_ESCAPE_DIST
+                          + config.SAFETY_STOP_MARGIN) if esc["dir"] < 0 else \
+                (front > config.COLLISION_ESCAPE_DIST + config.SAFETY_STOP_MARGIN)
+            if (moved < config.COLLISION_ESCAPE_DIST and side_clear
+                    and sim_time - esc["t0"] < 4.0):
+                return esc["dir"] * 0.08, 0.0
+            if not side_clear and moved < 0.01:
+                self.log(f"[t={sim_time:.1f}s] RECOVERY: cannot move away from the "
+                         f"contact ({'rear' if esc['dir'] < 0 else 'front'} not verified clear)")
+            self._escape = None
+            self._recovery_clock["t"] = sim_time
+            rec._enter_state(rec.state)       # restart the WAIT timer after escaping
+        rotate_safe = self._rotate_safe(scan)
+        cmd = rec.update(dt, front, rear, pose[2], (pose[0], pose[1]),
+                         rotate_safe=rotate_safe, rear_verified=rear_verified)
+        st = rec.get_state()
+        if st == RecoveryState.IDLE:
+            # the obstacle went away while waiting: replan from here anyway
+            # (the old route may still be marked) and resume
+            self._recovery = None
+            self.log(f"[t={sim_time:.1f}s] RECOVERY: path clear again")
+            return self._replan(pose, goal, "RECOVERED", sim_time, bypass_cooldown=True)
+        if st == RecoveryState.REPLAN:
+            wps, info = self.planner((pose[0], pose[1]), goal)
+            if wps:
+                self._recovery = None
+                self.log(f"[t={sim_time:.1f}s] RECOVERY: replanned from the current pose")
+                return self._replan(pose, goal, "RECOVERED", sim_time, bypass_cooldown=True)
+            rec.update(dt, front, rear, pose[2], (pose[0], pose[1]),
+                       rotate_safe=rotate_safe, rear_verified=rear_verified)
+            st = rec.get_state()
+        if st == RecoveryState.ERROR:
+            self._recovery = None
+            if self._nav_recoveries < config.NAV_MAX_RECOVERIES:
+                self._start_recovery(sim_time, self._recovery_why)
+                return 0.0, 0.0
+            self.follower = None
+            self.failure_reason = f"NAVIGATION_FAILED: recovery exhausted ({self._recovery_why})"
+            self.log(f"ERROR: {self.failure_reason}")
+            self._set_state("ERROR", sim_time)
+            return 0.0, 0.0
+        if cmd is None:
+            return 0.0, 0.0
+        return cmd
+
+    @staticmethod
+    def _rear_verified(scan, angles):
+        """Rear sector has valid LiDAR data (no NaN): reversing is only
+        allowed on positive evidence, never on missing data."""
+        if scan is None or angles is None:
+            return False
+        r = np.asarray(scan, dtype=float)
+        a = np.asarray(angles, dtype=float)
+        rear = np.abs(np.abs(a) - math.pi) <= math.radians(60)
+        return bool(rear.any()) and not bool(np.isnan(r[rear]).any())
+
+    @staticmethod
+    def _rotate_safe(scan):
+        if scan is None:
+            return False
+        r = np.asarray(scan, dtype=float)
+        r = r[np.isfinite(r)]
+        if r.size == 0:
+            return True
+        return float(r.min()) > config.ROBOT_SWEEP_RADIUS + config.RECOVERY_ROTATE_CLEAR
+
     def _handle_blocked(self, pose, scan, angles, goal, sim_time):
-        """Yield for moving obstacles; replan only if permanently blocked."""
+        """Follower safety stop: yield for moving obstacles, then replan from
+        the current pose (recovery if no path)."""
         if self.grid is None:
             self.follower = None
             self._set_state("ERROR", sim_time)
@@ -336,12 +810,25 @@ class DecisionMaker:
             return 0.0, 0.0
 
         yield_time = getattr(config, "YIELD_WAIT_TIME", 1.5)
+        self._urgent = True             # follower LiDAR stop: obstacle within STOP_DIST
+        if self.obstacle_map is not None and scan is not None and angles is not None:
+            # a MOVING obstacle right in front: always let it pass first
+            # (replanning around a crossing cart steers into its path)
+            sc = np.asarray(scan, dtype=float)
+            an = np.asarray(angles, dtype=float)
+            ok = np.isfinite(sc)
+            if ok.any():
+                i = int(np.argmin(np.where(ok, sc, np.inf)))
+                ox_ = pose[0] + sc[i] * math.cos(pose[2] + an[i])
+                oy_ = pose[1] + sc[i] * math.sin(pose[2] + an[i])
+                if self.obstacle_map.moving_near(ox_, oy_, 0.6, sim_time):
+                    yield_time = max(yield_time, config.DYN_YIELD_TIME)
 
         # Dynamic yield: wait up to YIELD_WAIT_TIME for moving obstacle to cross
         if yield_time > 0.0:
-            if not hasattr(self, '_blocked_start_time') or self._blocked_start_time is None:
+            if self._blocked_start_time is None:
                 self._blocked_start_time = sim_time
-                self.log(f"[t={sim_time:.1f}s] Dynamic obstacle ahead — yielding to let it pass...")
+                self.log(f"[t={sim_time:.1f}s] Obstacle ahead — braking, yielding to let it pass...")
 
             elapsed = sim_time - self._blocked_start_time
             if elapsed < yield_time:
@@ -365,20 +852,23 @@ class DecisionMaker:
                         return 0.0, 0.0
                 return 0.0, 0.0
 
-        # Obstacle remained static for > yield_time (or yield_time is 0) — replan detour
+        # Obstacle remained for > yield_time (or yield_time is 0) — replan detour
         self._blocked_start_time = None
 
         d_min = float("inf")
         phi_min = 0.0
+        reversing = self.follower is not None and getattr(self.follower, "reversing", False)
         if scan is not None and angles is not None:
             for r, a in zip(scan, angles):
-                if abs(a) <= config.FRONT_CONE and r < d_min:
+                rel = math.atan2(math.sin(a - (math.pi if reversing else 0.0)),
+                                 math.cos(a - (math.pi if reversing else 0.0)))
+                if abs(rel) <= config.FRONT_CONE and r < d_min:
                     d_min = r
                     phi_min = a
 
         if math.isinf(d_min):
             d_min = config.STOP_DIST
-            phi_min = 0.0
+            phi_min = math.pi if reversing else 0.0
 
         ox = pose[0] + d_min * math.cos(pose[2] + phi_min)
         oy = pose[1] + d_min * math.sin(pose[2] + phi_min)
@@ -394,26 +884,34 @@ class DecisionMaker:
         # restored Phase 12.1 trace line (dropped in "phase 14 + 15"; the
         # replanning test and the demo script grep for it)
         self.log(f"[t={sim_time:.1f}s] Current path BLOCKED at waypoint {wp_idx}")
-        self.grid.add_obstacle_world(ox, oy, radius=0.12)
-        r_row, r_col = self.grid.world_to_cell(pose[0], pose[1])
-        if self.grid.in_bounds(r_row, r_col):
-            self.grid.dynamic[r_row, r_col] = False
-
-        self.log(f"[t={sim_time:.1f}s] REPLANNING from ({pose[0]:.2f}, {pose[1]:.2f}) to ({goal[0]:.2f}, {goal[1]:.2f})...")
-        wps, info = self.planner((pose[0], pose[1]), goal)
-        if wps is not None and len(wps) > 0:
-            self.replans += 1
-            self.path_length_total += info.get("length_m", 0.0)
-            self.follower = WaypointFollower(wps)
-            self.last_info = info
-            self.log(f"[t={sim_time:.1f}s] REPLAN SUCCESS: {info.get('n_waypoints', '?')} waypoints, "
-                     f"length {info.get('length_m', 0):.2f} m, took {info.get('runtime_ms', 0):.1f} ms")
-            return 0.0, 0.0
+        if self.obstacle_map is not None:
+            # the continuous LiDAR layer already holds the obstacle's real
+            # extent; refresh it now so the replan sees the latest scan
+            self.obstacle_map.update(pose, scan, angles, sim_time, force=True,
+                                     trusted=self.health.get("loc_ok", True))
+            self._dyn_infl = None
         else:
-            self.log(f"[t={sim_time:.1f}s] REPLAN FAILED: no path found")
-            self.follower = None
-            self._set_state("ERROR", sim_time)
+            # legacy: mark the closest ray in the driving direction
+            self.grid.add_obstacle_world(ox, oy, radius=0.12)
+            r_row, r_col = self.grid.world_to_cell(pose[0], pose[1])
+            if self.grid.in_bounds(r_row, r_col):
+                self.grid.dynamic[r_row, r_col] = False
+        # the same stop again from (almost) the same place: replanning alone
+        # will not help (e.g. pushed against a known obstacle) -> recovery
+        last = self._last_safety_stop
+        self._last_safety_stop = (pose[0], pose[1], sim_time)
+        if last is not None and math.hypot(pose[0] - last[0], pose[1] - last[1]) < 0.05:
+            self._count_reason("SAFETY_STOP_REPEATED")
+            self.log(f"[t={sim_time:.1f}s] Blocked again without progress — recovery")
+            if self._nav_recoveries >= config.NAV_MAX_RECOVERIES:
+                self.follower = None
+                self.failure_reason = "NAVIGATION_FAILED: blocked without progress"
+                self.log(f"ERROR: {self.failure_reason}")
+                self._set_state("ERROR", sim_time)
+                return 0.0, 0.0
+            self._start_recovery(sim_time, "REPLAN_FAILED/SAFETY_STOP_REPEATED")
             return 0.0, 0.0
+        return self._replan(pose, goal, "SAFETY_STOP", sim_time, bypass_cooldown=True)
 
     def _arrived_at_parcel(self, sim_time):
         """End of NAVIGATE: dock for a real pick, or the legacy placeholder."""
@@ -453,6 +951,7 @@ class DecisionMaker:
                      f"{self.target_slot.slot_id} (Zone {config.TASK_ZONE} rack, "
                      f"level {self.target_slot.level}, bay {self.target_slot.bay})")
         goal = self._delivery_goal()
+        self._begin_goal()
         wps, info = self.planner((pose[0], pose[1]), goal)
         self.last_info = info
         if wps is None:
@@ -460,7 +959,7 @@ class DecisionMaker:
             self.log("ERROR: no path to delivery zone")
             return 0.0, 0.0
         self.path_length_total += info.get("length_m", 0.0)
-        self.follower = WaypointFollower(wps)
+        self._new_follower(wps)
         self.log(f"[t={sim_time:.1f}s] A* path: {info.get('n_waypoints', '?')} "
                  f"waypoints, {info.get('length_m', 0):.2f} m, "
                  f"{info.get('runtime_ms', 0):.1f} ms, "
@@ -469,6 +968,9 @@ class DecisionMaker:
         return 0.0, 0.0
 
     def _do_deliver(self, pose, scan, angles, detections, sim_time, dt):
+        handled = self._nav_monitor(pose, scan, angles, self._delivery_goal(), sim_time, dt)
+        if handled is not None:
+            return handled
         v, w = self.follower.update(pose, scan, angles)
         if self.follower.status == "REACHED" and self.manip is not None:
             self.follower = None
@@ -501,6 +1003,7 @@ class DecisionMaker:
         if self.follower is None:
             cx, cy, _ = config.ROBOT_START
             rx, ry, _ = pose
+            self._begin_goal()
             wps, info = self.planner((rx, ry), (cx, cy))
             self.last_info = info
             if wps is None:
@@ -508,11 +1011,15 @@ class DecisionMaker:
                 self._set_state("AWAIT_INPUT", sim_time)
                 return 0.0, 0.0
             self.path_length_total += info.get("length_m", 0.0)
-            self.follower = WaypointFollower(wps)
+            self._new_follower(wps)
             self.log(f"[t={sim_time:.1f}s] Returning to center: "
                      f"{info.get('n_waypoints', '?')} waypoints, "
                      f"{info.get('length_m', 0):.2f} m")
 
+        cx, cy, _ = config.ROBOT_START
+        handled = self._nav_monitor(pose, scan, angles, (cx, cy), sim_time, dt)
+        if handled is not None:
+            return handled
         v, w = self.follower.update(pose, scan, angles)
         if self.follower.status == "REACHED":
             self.follower = None
@@ -551,6 +1058,8 @@ class DecisionMaker:
             # package-obstacle marks don't block the new pickup route.
             if self.grid is not None:
                 self.grid.clear_dynamic()
+                if self.obstacle_map is not None:
+                    self.obstacle_map.clear()
             self._set_state("IDLE", sim_time)
 
         return 0.0, 0.0
@@ -742,8 +1251,13 @@ class DecisionMaker:
             "time_s": sim_time - self.t_start,
             "path_length_m": self.path_length_total,
             "replans": self.replans,
-            "collisions": "N/A (bumper in final eval)",
+            "replan_reasons": dict(self.replan_reasons),
+            "replan_events": list(self.replan_events[-20:]),
+            "nav_recoveries": self.recoveries,
+            "collisions": self.health.get("collisions", "N/A (no bumper data)"),
         }
+        if self.governor is not None:
+            self.mission_report["safety"] = self.governor.summary()
         if self.manip is not None:
             self.mission_report.update({
                 "pick_mode": "arm (latched parallel gripper)",

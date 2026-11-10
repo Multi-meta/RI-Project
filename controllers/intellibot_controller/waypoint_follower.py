@@ -7,7 +7,11 @@ Control law (project_summary.md §10.6):
     dist        = |wp - pos|
     heading_err = wrap_to_pi(atan2(dy, dx) - theta)
     w           = PID(heading_err), clamped to +-W_MAX
-    v           = V_MAX * clamp(cos(heading_err), 0, 1) * min(1, dist/SLOWDOWN)
+    v           = V_MAX * clamp(cos(heading_err), 0, 1) * min(1, remaining/SLOWDOWN)
+                  remaining = distance still to drive along the route to the
+                  FINAL waypoint (it used to be the distance to the CURRENT
+                  waypoint: with waypoints resampled every 0.3 m the robot
+                  never exceeded ~0.6 V_MAX on a straight line)
     if |heading_err| > TURN_IN_PLACE_THRESH: v = 0
     waypoint reached when dist < WP_TOLERANCE (last: GOAL_TOLERANCE)
 
@@ -117,7 +121,16 @@ class WaypointFollower:
                 return 0.0, 0.0
 
             from mapping import obstacle_in_sector
-            if not reverse:
+            if abs(heading_err) > self.turn_thresh:
+                # turn in place first: the robot does not translate, so the
+                # driving-direction cone is irrelevant (checking it trapped a
+                # robot that had to turn AWAY from a wall it faced). Only the
+                # swept circle of the rotating body must be clear.
+                finite = [r for r in scan if math.isfinite(r)]
+                if finite and min(finite) < config.ROBOT_SWEEP_RADIUS:
+                    self.status = "BLOCKED"
+                    return 0.0, 0.0
+            elif not reverse:
                 # Moving forward: check front cone
                 front = front_min_range(scan, angles, self.front_cone)
                 if front < self.stop_dist:
@@ -139,10 +152,29 @@ class WaypointFollower:
         if abs(heading_err) > self.turn_thresh:
             v = 0.0                                   # rotate slightly first if angle > threshold
         else:
-            speed = self.v_max * max(0.0, math.cos(heading_err)) * min(1.0, dist / self.slow)
+            remaining = dist + self._remaining_after(self.idx)
+            speed = self.v_max * max(0.0, math.cos(heading_err)) * min(1.0, remaining / self.slow)
             v = -speed if reverse else speed
 
         return v, w
+
+    def _remaining_after(self, idx):
+        """Route length from waypoint idx to the final waypoint (m)."""
+        if getattr(self, "_rem_cache", None) is None:
+            rem = [0.0] * len(self.waypoints)
+            for i in range(len(self.waypoints) - 2, -1, -1):
+                (ax, ay), (bx, by) = self.waypoints[i], self.waypoints[i + 1]
+                rem[i] = rem[i + 1] + math.hypot(bx - ax, by - ay)
+            self._rem_cache = rem
+        return self._rem_cache[idx] if 0 <= idx < len(self._rem_cache) else 0.0
+
+    def remaining_length(self, pose):
+        """Distance left along the route from pose (for the speed governor)."""
+        if not self.waypoints or self.status == "REACHED":
+            return 0.0
+        i = min(self.idx, len(self.waypoints) - 1)
+        wx, wy = self.waypoints[i]
+        return math.hypot(wx - pose[0], wy - pose[1]) + self._remaining_after(i)
 
     def _crosstrack(self, x, y):
         """Distance from (x, y) to the line through the previous waypoint and

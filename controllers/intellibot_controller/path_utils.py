@@ -77,8 +77,53 @@ def path_length(waypoints):
     return total
 
 
+def find_safe_start(grid, planning_occ, start_xy, goal_xy, radius, clearance=None):
+    """Nearest cell to the robot that is free in the PLANNING grid and that the
+    robot can reach along a straight line without touching a real obstacle.
+
+    Used when the robot's own cell lies inside the inflated map (it stopped
+    close to an obstacle, or was pushed there). A* alone would "snap" the
+    start to ANY free cell up to 2 m away — possibly behind the obstacle or
+    back on the old route — and the robot would then drive there blindly.
+
+    planning_occ : inflated occupancy the planner uses
+    clearance    : radius used to check the straight move (default: half the
+                   body width + 2 cm: the robot drives the move lengthwise)
+    Returns ((row, col), distance_m) or (None, None). Obstacles are never
+    cleared to make the start free.
+    """
+    import config
+    clr = (config.BODY_WIDTH / 2.0 + 0.02) if clearance is None else clearance
+    phys = grid.inflate(clr)
+    r0, c0 = grid.world_to_cell(*start_xy)
+    gr, gc = grid.world_to_cell(*goal_xy)
+    n = int(math.ceil(radius / grid.res))
+    best, best_key = None, None
+    for dr in range(-n, n + 1):
+        for dc in range(-n, n + 1):
+            r, c = r0 + dr, c0 + dc
+            if not grid.in_bounds(r, c) or planning_occ[r, c]:
+                continue
+            d = math.hypot(dr, dc) * grid.res
+            if d > radius:
+                continue
+            ok = True
+            for rr, cc in bresenham(r0, c0, r, c):
+                if grid.in_bounds(rr, cc) and phys[rr, cc] and (rr, cc) != (r0, c0):
+                    ok = False
+                    break
+            if not ok:
+                continue
+            key = (round(d, 3), math.hypot(gr - r, gc - c))
+            if best_key is None or key < best_key:
+                best, best_key = (r, c), key
+    if best is None:
+        return None, None
+    return best, best_key[0]
+
+
 def plan_to(grid, start_xy, goal_xy, resample_spacing=0.3,
-            inflation_radius=None):
+            inflation_radius=None, safe_start_radius=None):
     """End-to-end planner glue: snap -> A* -> simplify -> world waypoints.
 
     Returns (waypoints_world, info) or (None, info). `grid` is the raw
@@ -94,8 +139,22 @@ def plan_to(grid, start_xy, goal_xy, resample_spacing=0.3,
         occupancy = grid.occupied()
     start_cell = grid.world_to_cell(*start_xy)
     goal_cell = grid.world_to_cell(*goal_xy)
+    start_shift = 0.0
+    if (safe_start_radius and grid.in_bounds(*start_cell)
+            and occupancy[start_cell[0], start_cell[1]]):
+        cell, dist = find_safe_start(grid, occupancy, start_xy, goal_xy,
+                                     safe_start_radius)
+        if cell is None:
+            return None, {"found": False, "reason": "START_BLOCKED",
+                          "expansions": 0, "runtime_ms": 0.0}
+        start_cell, start_shift = cell, dist
+    goal_blocked = (not grid.in_bounds(*goal_cell)
+                    or bool(occupancy[goal_cell[0], goal_cell[1]]))
     path, info = a_star(occupancy, start_cell, goal_cell)
+    info["start_shift_m"] = start_shift
+    info["goal_snapped"] = goal_blocked
     if path is None:
+        info.setdefault("reason", "NO_PATH")
         return None, info
     simple = simplify_path(path, occupancy)
     wps = cells_to_world(simple, grid)

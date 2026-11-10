@@ -44,7 +44,10 @@ import config  # noqa: E402
 import path_utils  # noqa: E402
 import shelving  # noqa: E402
 from decision_maker import DecisionMaker  # noqa: E402
+from dynamic_map import DynamicObstacleMap  # noqa: E402
 from kinematics import wrap_to_pi  # noqa: E402
+from localization import LocalizationManager  # noqa: E402
+from safety import SpeedGovernor  # noqa: E402
 from pick_place import build_manipulator  # noqa: E402
 from warehouse_grid import build_warehouse_grid  # noqa: E402
 
@@ -75,6 +78,12 @@ class KinematicWorld:
                                 for i in range(self.n_rays)])
         self.estimate_error = estimate_error
         self.t = 0.0
+        self.obstacles = []         # MovingBox list (dynamic obstacles)
+
+    # -------------------------------------------------- dynamic obstacles
+    def obstacle_rects(self, t=None):
+        t = self.t if t is None else t
+        return [o.rect(t) for o in self.obstacles if o.active(t)]
 
     # ------------------------------------------------------------- LiDAR
     def _parcel_rects_in_lidar_plane(self):
@@ -88,7 +97,8 @@ class KinematicWorld:
     def scan(self):
         """Vectorised slab-method ray casting of all rays against all rects."""
         x, y, th = self.pose
-        rects = np.array(self.rects + self._parcel_rects_in_lidar_plane())
+        rects = np.array(self.rects + self._parcel_rects_in_lidar_plane()
+                         + self.obstacle_rects())
         dx = np.cos(th + self.angles)[:, None]
         dy = np.sin(th + self.angles)[:, None]
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -153,6 +163,56 @@ class KinematicWorld:
                 below = [t for t in config.DEST_RACK_LEVEL_TOPS if t <= self._z_query + 1e-6]
                 return max(below) if below else 0.0
         return 0.0
+
+
+class MovingBox:
+    """Axis-aligned box obstacle: present for t_on <= t < t_off, moving with
+    (vx, vy) and bouncing between its start point and `travel` metres away."""
+
+    def __init__(self, x, y, sx, sy, vx=0.0, vy=0.0, travel=0.0, t_on=0.0,
+                 t_off=math.inf, name="box"):
+        self.x0, self.y0, self.sx, self.sy = x, y, sx, sy
+        self.vx, self.vy, self.travel = vx, vy, travel
+        self.t_on, self.t_off, self.name = t_on, t_off, name
+
+    def active(self, t):
+        return self.t_on <= t < self.t_off
+
+    def center(self, t):
+        sp = math.hypot(self.vx, self.vy)
+        if sp == 0.0 or self.travel <= 0.0:
+            return self.x0, self.y0
+        d = (sp * (t - self.t_on)) % (2 * self.travel)
+        d = d if d <= self.travel else 2 * self.travel - d
+        return self.x0 + self.vx / sp * d, self.y0 + self.vy / sp * d
+
+    def rect(self, t):
+        cx, cy = self.center(t)
+        return (cx - self.sx / 2, cx + self.sx / 2, cy - self.sy / 2, cy + self.sy / 2)
+
+
+# robot footprint used for collision / clearance accounting (body + bumpers,
+# front extended to the stowed parcel): x in [-0.17, 0.19], y in [-0.10, 0.10]
+_FOOT = [(x, y) for x in np.linspace(-0.17, 0.19, 10) for y in (-0.10, 0.10)] + \
+        [(x, y) for x in (-0.17, 0.19) for y in np.linspace(-0.10, 0.10, 6)]
+
+
+def footprint_clearance(pose, rects):
+    """Min distance (m) from the robot footprint to any rect; 0 = contact.
+    Also returns whether the contact is at the front half."""
+    x, y, th = pose
+    c, s_ = math.cos(th), math.sin(th)
+    pts = np.array([(x + c * px - s_ * py, y + s_ * px + c * py) for px, py in _FOOT])
+    if not rects:
+        return math.inf, True
+    R = np.asarray(rects)
+    dx = np.maximum(np.maximum(R[None, :, 0] - pts[:, None, 0], 0.0),
+                    pts[:, None, 0] - R[None, :, 1])
+    dy = np.maximum(np.maximum(R[None, :, 2] - pts[:, None, 1], 0.0),
+                    pts[:, None, 1] - R[None, :, 3])
+    d = np.hypot(np.maximum(dx, 0.0), np.maximum(dy, 0.0))
+    i = int(np.argmin(d.min(axis=1)))
+    return float(d.min()), _FOOT[i][0] >= 0.0
 
 
 # ======================================================== kinematic arm driver
@@ -295,9 +355,30 @@ class KinematicArmDriver:
 # ================================================================ runner
 def run_mission(package="P3", zone="B", start=None, max_time=900.0, dt=0.032,
                 estimate_error=(0.06, -0.04), occupied_slots=(), quiet=True,
-                record=False, csv_path=None):
-    """Run the real FSM against the kinematic world. Returns a result dict."""
+                record=False, csv_path=None, navigation="full", localization="ekf",
+                governor=True, obstacles=(), displace=None, gps_noise=0.0,
+                imu_noise=0.0, odom_scale_error=0.0, gps_dropout=None, seed=0):
+    """Run the real FSM against the kinematic world. Returns a result dict.
+
+    navigation   : "full"   = continuous LiDAR dynamic layer + replanning
+                              triggers + safe-start planner + recovery
+                   "legacy" = old behaviour (replan only on the follower's
+                              safety stop, single-ray obstacle mark, A*
+                              start snapping) — ablation baseline
+    localization : "truth" (pose = ground truth, no estimator) or a
+                   LocalizationManager mode "ekf" | "odom" | "gps", fed with
+                   simulated sensors: encoder increments with a scale error
+                   (odom_scale_error, e.g. 0.02 = 2 % slip), GPS with
+                   gps_noise sigma (m) and an optional dropout window
+                   gps_dropout=(t0, t1), IMU yaw with imu_noise sigma (rad).
+    governor     : SpeedGovernor on (V_CRUISE, clearance-limited) or off
+                   (legacy fixed V_MAX)
+    obstacles    : MovingBox list added to the world (seen by the LiDAR)
+    displace     : (t, dx, dy, dth) — the robot is moved instantly at time t
+                   (collision / manual drag); the wheels do NOT see it.
+    """
     lines = []
+    rng = np.random.default_rng(seed)
 
     def log(msg):
         lines.append(msg)
@@ -311,16 +392,23 @@ def run_mission(package="P3", zone="B", start=None, max_time=900.0, dt=0.032,
     config.TASK_ZONE, config.INTERACTIVE_MODE = zone, False
     try:
         world = KinematicWorld(start, estimate_error)
+        world.obstacles = list(obstacles)
         driver = KinematicArmDriver(world, dt=dt)
         manip, kin = build_manipulator(driver, log=log)
         grid = build_warehouse_grid()
+        full = navigation == "full"
 
         def planner(s, g):
             return path_utils.plan_to(grid, s, g, resample_spacing=0.3,
-                                      inflation_radius=config.INFLATION_RADIUS)
+                                      inflation_radius=config.INFLATION_RADIUS,
+                                      safe_start_radius=config.SAFE_START_RADIUS if full else None)
 
+        gov = SpeedGovernor(enabled=governor)
         fsm = DecisionMaker(planner, world.estimator, grid=grid, log=log,
-                            manipulator=manip, kinematics=kin)
+                            manipulator=manip, kinematics=kin,
+                            obstacle_map=DynamicObstacleMap(grid) if full else None,
+                            governor=gov)
+        loc = None if localization == "truth" else LocalizationManager(localization, log=log)
         for sid in occupied_slots:
             fsm.occupancy.mark(sid, "pre-occupied")
         states, traj = [fsm.state], []
@@ -330,9 +418,44 @@ def run_mission(package="P3", zone="B", start=None, max_time=900.0, dt=0.032,
             from pick_place import manip_log_row
             csv_log = CsvLogger(csv_path, MANIP_COLUMNS)
         t, k = 0.0, 0
+        last_inc = (0.0, 0.0)
+        pose_err = []
+        collisions = {"front": 0, "rear": 0}
+        in_contact = False
+        min_clear = math.inf
+        displaced = False
+        durations = {}
         while t < max_time:
+            world.t = t
+            if displace is not None and not displaced and t >= displace[0]:
+                displaced = True
+                world.pose = [world.pose[0] + displace[1], world.pose[1] + displace[2],
+                              wrap_to_pi(world.pose[2] + displace[3])]
+                log(f"[SIM] [t={t:.2f}s] robot DISPLACED by {displace[1:]} (wheels did not see it)")
             scan, angles = world.scan()
-            v, w = fsm.update(tuple(world.pose), scan, angles, world.detections(), t, dt)
+            if loc is None:
+                pose = tuple(world.pose)
+            else:
+                gps = None
+                if not (gps_dropout and gps_dropout[0] <= t < gps_dropout[1]):
+                    gps = (world.pose[0] + rng.normal(0, gps_noise) if gps_noise else world.pose[0],
+                           world.pose[1] + rng.normal(0, gps_noise) if gps_noise else world.pose[1])
+                yaw = world.pose[2] + (rng.normal(0, imu_noise) if imu_noise else 0.0)
+                est = loc.step(t, last_inc, gps, wrap_to_pi(yaw))
+                jump = loc.consume_pose_jump()
+                if jump is not None:
+                    fsm.notify_pose_jump(jump, t)
+                pose = est if est is not None else tuple(world.pose)
+                fsm.health["localization"] = loc.status
+                fsm.health["loc_ok"] = loc.healthy()
+                e = (pose[0] - world.pose[0], pose[1] - world.pose[1],
+                     wrap_to_pi(pose[2] - world.pose[2]))
+                P = loc.covariance()
+                nees = float(np.array(e) @ np.linalg.solve(P, np.array(e))) if P is not None else math.nan
+                pose_err.append((t, *e, nees))
+            st_before = fsm.state
+            v, w = fsm.update(pose, scan, angles, world.detections(), t, dt)
+            durations[st_before] = durations.get(st_before, 0.0) + dt
             if states[-1] != fsm.state:
                 states.append(fsm.state)
             if record:
@@ -344,7 +467,28 @@ def run_mission(package="P3", zone="B", start=None, max_time=900.0, dt=0.032,
                 break
             if fsm.state.startswith(("ARM_", "VERIFY_")):
                 assert v == 0.0 and w == 0.0, "base moved during manipulation!"
+            before = list(world.pose)
             world.step_base(v, w, dt)
+            # contact accounting against walls/shelves/racks and dynamic boxes
+            # (floor parcels are excluded: the pick approach is the docker's job)
+            rects = world.rects + world.obstacle_rects(t + dt)
+            clr, front = footprint_clearance(world.pose, rects)
+            if fsm.state in ("NAVIGATE", "DELIVER", "RETURN_TO_CENTER"):
+                min_clear = min(min_clear, clr)
+            if clr <= 1e-6:
+                world.pose = before                 # a contact stops the base
+                if not in_contact:
+                    collisions["front" if front else "rear"] += 1
+                    log(f"[SIM] [t={t:.2f}s] CONTACT ({'front' if front else 'rear'}) "
+                        f"in {fsm.state}")
+                    fsm.notify_collision(front, t)
+                in_contact = True
+            else:
+                in_contact = False
+            dth = wrap_to_pi(world.pose[2] - before[2])
+            ds = math.hypot(world.pose[0] - before[0], world.pose[1] - before[1])
+            ds = math.copysign(ds, v) if v != 0 else 0.0
+            last_inc = (ds * (1.0 + odom_scale_error), dth * (1.0 + odom_scale_error))
             driver.step(dt)
             t += dt
         if csv_log is not None:
@@ -353,11 +497,26 @@ def run_mission(package="P3", zone="B", start=None, max_time=900.0, dt=0.032,
         audit = None
         if fsm.target_slot is not None:
             audit = shelving.audit_placement(parcel.pos, fsm.target_slot)
+        loc_stats = None
+        if pose_err:
+            e = np.array(pose_err)
+            loc_stats = dict(rmse_xy=float(np.sqrt(np.mean(e[:, 1] ** 2 + e[:, 2] ** 2))),
+                             max_xy=float(np.max(np.hypot(e[:, 1], e[:, 2]))),
+                             rmse_theta=float(np.sqrt(np.mean(e[:, 3] ** 2))),
+                             mean_nees=float(np.nanmean(e[:, 4])),
+                             summary=loc.summary())
         return {"final_state": fsm.state, "states": states, "time": t,
                 "report": fsm.mission_report, "parcel_pos": parcel.pos.tolist(),
                 "slot": fsm.target_slot.slot_id if fsm.target_slot else None,
                 "audit": audit, "log": lines, "fsm": fsm, "world": world,
-                "trajectory": traj}
+                "trajectory": traj, "collisions": collisions,
+                "min_clearance": min_clear, "replans": fsm.replans,
+                "replan_reasons": dict(fsm.replan_reasons),
+                "safety": gov.summary(), "localization": loc_stats,
+                "pose_errors": pose_err,
+                "state_durations": durations,
+                "nav_time": sum(durations.get(k, 0.0) for k in
+                                ("NAVIGATE", "DELIVER", "RETURN_TO_CENTER"))}
     finally:
         (config.TASK_PACKAGE, config.TASK_PACKAGE_DEF, config.TASK_PACKAGE_COLOR,
          config.TASK_ZONE, config.INTERACTIVE_MODE) = old

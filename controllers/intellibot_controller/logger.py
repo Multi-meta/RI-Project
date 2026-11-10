@@ -12,7 +12,13 @@ import config
 
 COLUMNS = ["t", "x", "y", "theta", "x_odom", "y_odom", "theta_odom",
            "v_cmd", "w_cmd", "wl", "wr", "state", "wp_idx",
-           "cross_track_err", "lidar_front_min", "n_detections"]
+           "cross_track_err", "lidar_front_min", "n_detections",
+           # x/y/theta above = GPS + IMU (sensor). Below: the pose the robot
+           # navigates with (localization.LocalizationManager), Supervisor
+           # ground truth (EVALUATION ONLY), and navigation/safety telemetry.
+           "x_est", "y_est", "theta_est", "x_gt", "y_gt", "theta_gt",
+           "loc_status", "sigma_xy", "v_cap", "cap_reason", "clearance",
+           "dyn_cells", "replans"]
 
 
 class RunLogger:

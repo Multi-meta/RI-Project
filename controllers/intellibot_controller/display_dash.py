@@ -21,6 +21,9 @@ COL_ROUTE = 0xEA580C
 COL_ROBOT = 0x1668B4
 COL_TEXT = 0x1E293B
 COL_PKG = 0x1D4ED8
+COL_DYN = 0xDC2626        # LiDAR dynamic obstacles
+COL_GT = 0x16A34A         # ground-truth marker (evaluation only)
+COL_WARN = 0xB91C1C
 
 
 class Dashboard:
@@ -50,13 +53,42 @@ class Dashboard:
         return u, v
 
     # --------------------------------------------------------------- draw
-    def draw(self, pose, state, sim_time, waypoints=None, pkg_xy=None):
+    def draw(self, pose, state, sim_time, waypoints=None, pkg_xy=None, extra=None):
+        """extra (optional): dict with
+            dyn_points   [(x, y)] dynamic obstacle cells
+            gt_pose      (x, y, th) ground truth — evaluation overlay only
+            lines        [str] status lines (localisation, sensors, replans,
+                         speed cap, shelf occupancy) drawn under the state
+            warn         bool — draw the status lines in red
+        """
+        extra = extra or {}
         self._draw_map()
+        self._draw_dynamic(extra.get("dyn_points"))
         self._draw_route(waypoints)
         if pkg_xy:
             self._draw_pkg(pkg_xy)
+        if extra.get("gt_pose") is not None:
+            u, v = self._world_px(extra["gt_pose"][0], extra["gt_pose"][1])
+            self.d.setColor(COL_GT)
+            self.d.drawOval(int(u) - 5, int(v) - 5, 10, 10)
         self._draw_robot(pose)
         self._draw_text(state, sim_time)
+        self._draw_lines(extra.get("lines") or [], extra.get("warn", False))
+
+    def _draw_dynamic(self, pts):
+        if not pts:
+            return
+        self.d.setColor(COL_DYN)
+        for x, y in pts:
+            r, c = self.grid.world_to_cell(x, y)
+            px, py, cw, ch = self._cell_rect(r, c)
+            self.d.fillRectangle(int(px), int(py), int(math.ceil(cw)), int(math.ceil(ch)))
+
+    def _draw_lines(self, lines, warn):
+        self.d.setColor(COL_WARN if warn else COL_TEXT)
+        self.d.setFont("Arial", 9, False)
+        for i, line in enumerate(lines[:8]):
+            self.d.drawText(str(line)[:48], 4, 42 + 12 * i)
 
     def _draw_map(self):
         self.d.setColor(COL_BG)

@@ -35,7 +35,9 @@ from arm_driver import ParcelAuditor, WebotsArmDriver  # noqa: E402
 from decision_maker import DecisionMaker  # noqa: E402
 from pick_place import build_manipulator, manip_log_row  # noqa: E402
 from display_dash import Dashboard, set_state_led  # noqa: E402
-from ekf_localization import EKFLocalizer  # noqa: E402
+from dynamic_map import DynamicObstacleMap  # noqa: E402
+from localization import LocalizationManager  # noqa: E402
+from safety import SpeedGovernor  # noqa: E402
 from kinematics import inverse_kinematics  # noqa: E402
 from logger import MANIP_COLUMNS, CsvLogger, RunLogger  # noqa: E402
 from mapping import front_min_range  # noqa: E402
@@ -54,6 +56,10 @@ def apply_env_overrides():
 
     INTELLIBOT_TASK_PACKAGE=P1|P2|P3, INTELLIBOT_TASK_ZONE=A|B,
     INTELLIBOT_INTERACTIVE=0|1 (tools/run_scenario.py sets these).
+
+    Phase-18 ablations in Webots (tools/run_scenario.py A_* scenarios):
+    INTELLIBOT_LOC_MODE=ekf|odom|gps, INTELLIBOT_GOVERNOR=0|1,
+    INTELLIBOT_DYN_REPLAN=0|1.
     """
     pkg = os.environ.get("INTELLIBOT_TASK_PACKAGE")
     if pkg in config.PACKAGE_COLORS:
@@ -66,6 +72,15 @@ def apply_env_overrides():
     inter = os.environ.get("INTELLIBOT_INTERACTIVE")
     if inter in ("0", "1"):
         config.INTERACTIVE_MODE = inter == "1"
+    mode = os.environ.get("INTELLIBOT_LOC_MODE")
+    if mode in ("ekf", "odom", "gps"):
+        config.LOCALIZATION_MODE = mode
+    gov = os.environ.get("INTELLIBOT_GOVERNOR")
+    if gov in ("0", "1"):
+        config.SPEED_GOVERNOR_ENABLED = gov == "1"
+    dyn = os.environ.get("INTELLIBOT_DYN_REPLAN")
+    if dyn in ("0", "1"):
+        config.DYNAMIC_REPLANNING_ENABLED = dyn == "1"
 
 
 def planner_factory(grid):
@@ -73,7 +88,8 @@ def planner_factory(grid):
     def plan(start_xy, goal_xy):
         return path_utils.plan_to(grid, start_xy, goal_xy,
                                   resample_spacing=0.3,
-                                  inflation_radius=config.INFLATION_RADIUS)
+                                  inflation_radius=config.INFLATION_RADIUS,
+                                  safe_start_radius=config.SAFE_START_RADIUS)
     return plan
 
 
@@ -243,8 +259,13 @@ def main():
     manip_log = (CsvLogger(os.path.join(log_dir(), f"manip{log_suffix}.csv"),
                            MANIP_COLUMNS) if manip is not None else None)
 
+    obstacle_map = DynamicObstacleMap(grid) if config.DYNAMIC_REPLANNING_ENABLED else None
+    governor = SpeedGovernor()
     fsm = DecisionMaker(planner, estimator, grid=grid, manipulator=manip,
-                        kinematics=kin)
+                        kinematics=kin, obstacle_map=obstacle_map, governor=governor)
+    print(f"[{robot_id}] navigation: localization={config.LOCALIZATION_MODE}, "
+          f"dynamic replanning={'ON' if obstacle_map is not None else 'OFF'}, "
+          f"speed governor={'ON (cruise %.2f m/s)' % config.V_CRUISE if governor.enabled else 'OFF (fixed %.2f m/s)' % config.V_MAX}")
     if interactive and run_idx is None:
         fsm.state = "AWAIT_INPUT"
         print("[INTELLIBOT] Interactive mode — waiting for task input in console...",
@@ -285,14 +306,14 @@ def main():
     except Exception:
         pass
 
-    init_pose = perception.get_pose()
-    ekf = EKFLocalizer(
-        x0=np.array([init_pose[0], init_pose[1], init_pose[2]], dtype=float),
-        P0=np.diag([0.05**2, 0.05**2, (2*math.pi/180)**2]),
-        Q=np.diag(config.EKF_Q)
-    )
-    init_odom_pose, _ = perception.get_odometry()
-    last_odom_pose = init_odom_pose
+    # The pose the robot navigates with. Initialised from the first VALID
+    # GPS + IMU sample inside the loop (sensors are NaN before the first
+    # step); predicted from SIGNED wheel-encoder increments.
+    loc = LocalizationManager()
+    self_node = robot.getSelf()            # ground truth: EVALUATION ONLY
+    gt_err = []                            # (ex, ey, eth, nees) for the report
+    bumper_prev = {"f": False, "r": False}
+    collisions = {"front": 0, "rear": 0}
     kpi_tracker = MissionKPITracker(robot_id=robot_id)
 
     log_every  = max(1, int(0.1 / (timestep / 1000.0)))   # ~10 Hz
@@ -328,6 +349,23 @@ def main():
                     print("[AUDIT] WARNING: sensor verification and ground truth "
                           "disagree — investigate before claiming success")
         report.update(kpi_tracker.generate_report().get("summary", {}))
+        report["localization"] = loc.summary()
+        if gt_err:
+            e = np.asarray(gt_err, dtype=float)
+            report["localization_vs_ground_truth"] = {
+                "samples": int(len(e)),
+                "rmse_xy_m": round(float(np.sqrt(np.mean(e[:, 0] ** 2 + e[:, 1] ** 2))), 4),
+                "rmse_theta_deg": round(float(np.degrees(np.sqrt(np.mean(e[:, 2] ** 2)))), 3),
+                "max_xy_m": round(float(np.max(np.hypot(e[:, 0], e[:, 1]))), 4),
+                "mean_nees": round(float(np.nanmean(e[:, 3])), 3),
+                "note": "Supervisor ground truth, evaluation only"}
+        report["collisions_bumper"] = dict(collisions)
+        report["camera_health"] = {"final": dict(cam_health),
+                                   "transitions": dict(cam_transitions)}
+        report["safety"] = governor.summary()
+        if obstacle_map is not None:
+            report["dynamic_map"] = {"updates": obstacle_map.updates,
+                                     "cells_marked_total": obstacle_map.marked_total}
         path = os.path.join(log_dir(), f"mission_report{log_suffix}.json")
         try:
             with open(path, "w") as fh:
@@ -337,7 +375,7 @@ def main():
             print(f"[INTELLIBOT] could not write mission report: {exc}")
 
     def finish():
-        pose = perception.get_pose()
+        pose = loc.pose or perception.get_pose()
         logger.log(t=round(robot.getTime(), 3),
                    x=round(pose[0], 4), y=round(pose[1], 4),
                    theta=round(pose[2], 4),
@@ -349,6 +387,7 @@ def main():
         sys.stdout.flush()
 
     cam_health = {}
+    cam_transitions = {}
 
     while robot.step(timestep) != -1:
         sim_time = robot.getTime()
@@ -361,6 +400,7 @@ def main():
                 print(f"[CAMERA] [t={sim_time:.2f}s] {role}: "
                       f"{cam_health.get(role, '-')} -> {fr.health} {fr.reason}")
                 cam_health[role] = fr.health
+                cam_transitions[role] = cam_transitions.get(role, 0) + 1
         dets = perception.get_detections(frames["front"].image,
                                          frames["rear"].image)
 
@@ -381,34 +421,53 @@ def main():
             c_vy = c_speed if (int(sim_time / 4.0) % 2 == 0) else -c_speed
             fast_cart_node.setVelocity([0.0, c_vy, 0.0, 0.0, 0.0, 0.0])
 
-        if bumper_f is not None and bumper_f.getValue() > 0.0:
-            kpi_tracker.record_collision(is_front=True)
-            print(f"[BUMPER] [t={sim_time:.2f}s] Front bumper collision!")
-        if bumper_r is not None and bumper_r.getValue() > 0.0:
-            kpi_tracker.record_collision(is_front=False)
-            print(f"[BUMPER] [t={sim_time:.2f}s] Rear bumper collision!")
+        # ---- bumpers: a collision EVENT on the rising edge (not every step)
+        for key, dev, front in (("f", bumper_f, True), ("r", bumper_r, False)):
+            hit = dev is not None and dev.getValue() > 0.0
+            if hit and not bumper_prev[key]:
+                kpi_tracker.record_collision(is_front=front)
+                collisions["front" if front else "rear"] += 1
+                print(f"[BUMPER] [t={sim_time:.2f}s] {'Front' if front else 'Rear'} "
+                      f"bumper collision!")
+                fsm.notify_collision(front, sim_time)
+            bumper_prev[key] = hit
+        fsm.health["collisions"] = dict(collisions)
 
-        ds = math.hypot(odom_pose[0] - last_odom_pose[0],
-                        odom_pose[1] - last_odom_pose[1])
-        dtheta = odom_pose[2] - last_odom_pose[2]
-        last_odom_pose = odom_pose
-        if math.isfinite(ds) and math.isfinite(dtheta):
-            ekf.predict(ds, dtheta)
-        if math.isfinite(pose[0]) and math.isfinite(pose[1]):
-            ekf.update_gps(np.array([pose[0], pose[1]]),
-                           np.diag(config.EKF_R_GPS),
-                           gate_threshold=config.EKF_GATE_GPS)
-        if math.isfinite(pose[2]):
-            ekf.update_imu(pose[2], config.EKF_R_IMU,
-                           gate_threshold=config.EKF_GATE_IMU)
-
-        ekf_pose = ekf.get_pose()
-        if (math.isfinite(ekf_pose[0]) and math.isfinite(ekf_pose[1])
-                and math.isfinite(ekf_pose[2])):
-            operating_pose = (float(ekf_pose[0]), float(ekf_pose[1]),
-                              float(ekf_pose[2]))
-        else:
-            operating_pose = pose
+        # ---- localisation (EKF): signed encoder increments + GPS + IMU
+        gps_raw = perception.gps.getValues()
+        imu_raw = perception.imu.getRollPitchYaw()
+        gps_xy = (gps_raw[0], gps_raw[1]) if gps_raw is not None else None
+        imu_yaw = imu_raw[2] if imu_raw is not None else None
+        odo = perception.odometry
+        pose_est = loc.step(sim_time, (odo.last_ds, odo.last_dtheta), gps_xy, imu_yaw)
+        jump = loc.consume_pose_jump()
+        if jump is not None:
+            fsm.notify_pose_jump(jump, sim_time)
+        operating_pose = pose_est if pose_est is not None else pose
+        fsm.health["localization"] = loc.status
+        fsm.health["loc_ok"] = loc.healthy()
+        fsm.health["lidar"] = ("FAILED" if perception.lidar.getRangeImage() is None
+                               else "OK")
+        gt = None
+        try:
+            p_gt = self_node.getPosition()
+            o_gt = self_node.getOrientation()
+            gt = (p_gt[0], p_gt[1], math.atan2(o_gt[3], o_gt[0]))
+        except Exception:
+            gt = None
+        if gt is not None and pose_est is not None and step_i % log_every == 0:
+            ex, ey = pose_est[0] - gt[0], pose_est[1] - gt[1]
+            eth = math.atan2(math.sin(pose_est[2] - gt[2]), math.cos(pose_est[2] - gt[2]))
+            nees = math.nan
+            P = loc.covariance()
+            if P is not None:
+                try:
+                    e = np.array([ex, ey, eth])
+                    nees = float(e @ np.linalg.solve(P, e))
+                except np.linalg.LinAlgError:
+                    pass
+            gt_err.append((ex, ey, eth, nees))
+            kpi_tracker.update_ekf_error(ex, ey, eth)
 
         if emitter and int(sim_time * 10) % 10 == 0:
             try:
@@ -423,8 +482,21 @@ def main():
             except Exception:
                 pass
 
-        v, w = fsm.update(operating_pose, scan, angles, dets, sim_time,
-                          timestep / 1000.0)
+        try:
+            v, w = fsm.update(operating_pose, scan, angles, dets, sim_time,
+                              timestep / 1000.0)
+        except Exception as exc:
+            # an exception used to kill the controller: the robot then sat
+            # frozen (or kept rolling) with no message in the mission report
+            import traceback
+            traceback.print_exc()
+            print(f"[INTELLIBOT] [t={sim_time:.2f}s] CONTROLLER EXCEPTION in state "
+                  f"{fsm.state}: {exc} — base stopped, arm held, mission -> ERROR")
+            v, w = 0.0, 0.0
+            if manip is not None:
+                manip.arm.hold()
+            fsm.failure_reason = f"CONTROLLER_EXCEPTION in {fsm.state}: {exc}"
+            fsm._enter_error(sim_time)
         wl, wr = inverse_kinematics(v, w)
         perception.set_wheel_speeds(wl, wr)
         if carrier is not None:
@@ -435,7 +507,20 @@ def main():
 
         if dash is not None and step_i % dash_every == 0:
             wps = fsm.follower.waypoints if fsm.follower else None
-            dash.draw(pose, fsm.state, sim_time, wps, fsm.pkg_pos)
+            ls = loc.summary()
+            g = governor.last or {}
+            occ = fsm.occupancy.summary()
+            lines = [f"LOC {ls['mode']} {ls['status']} sig={ls['sigma_xy']} reloc={ls['relocalizations']}",
+                     f"GPS {ls['gps']} IMU {ls['imu']} LIDAR {fsm.health.get('lidar')} "
+                     f"CAM {'/'.join(cam_health.get(k, '-') for k in ('front', 'rear'))}",
+                     f"replans {fsm.replans} recov {fsm.recoveries} dyn {obstacle_map.count() if obstacle_map else 0}",
+                     f"v_cap {g.get('v_cap', 0):.2f} ({g.get('reason', '-')}) clr {g.get('clearance', float('nan')):.2f}",
+                     f"bumps F{collisions['front']} R{collisions['rear']} carrying {int(fsm.carrying)}",
+                     f"shelf {occ}"]
+            dash.draw(operating_pose, fsm.state, sim_time, wps, fsm.pkg_pos,
+                      extra={"dyn_points": obstacle_map.occupied_points() if obstacle_map else None,
+                             "gt_pose": gt, "lines": lines,
+                             "warn": loc.status not in ("OK",) or bool(g.get("emergency"))})
 
         if not finished and step_i % log_every == 0:
             logger.log(
@@ -453,6 +538,18 @@ def main():
                 lidar_front_min=round(front_min_range(scan, angles,
                                                       config.FRONT_CONE), 3),
                 n_detections=len(dets),
+                x_est=round(operating_pose[0], 4), y_est=round(operating_pose[1], 4),
+                theta_est=round(operating_pose[2], 4),
+                x_gt=round(gt[0], 4) if gt else "", y_gt=round(gt[1], 4) if gt else "",
+                theta_gt=round(gt[2], 4) if gt else "",
+                loc_status=loc.status, sigma_xy=loc.summary()["sigma_xy"],
+                v_cap=(round(governor.last.get("v_cap", 0.0), 3)
+                       if math.isfinite(governor.last.get("v_cap", math.inf)) else ""),
+                cap_reason=governor.last.get("reason", ""),
+                clearance=(round(governor.last.get("clearance", math.inf), 3)
+                           if math.isfinite(governor.last.get("clearance", math.inf)) else ""),
+                dyn_cells=obstacle_map.count() if obstacle_map else 0,
+                replans=fsm.replans,
             )
         step_i += 1
         if finished:

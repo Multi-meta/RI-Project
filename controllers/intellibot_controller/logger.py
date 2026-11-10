@@ -18,7 +18,13 @@ COLUMNS = ["t", "x", "y", "theta", "x_odom", "y_odom", "theta_odom",
            # ground truth (EVALUATION ONLY), and navigation/safety telemetry.
            "x_est", "y_est", "theta_est", "x_gt", "y_gt", "theta_gt",
            "loc_status", "sigma_xy", "v_cap", "cap_reason", "clearance",
-           "dyn_cells", "replans"]
+           "dyn_cells", "replans",
+           # fault injection (fault_injector.py): LiDAR health from invalid
+           # rays and the faults active at this instant ("" = none)
+           "lidar_health", "lidar_invalid", "faults",
+           # light sensor + LiDAR/ultrasound range fusion (range_fusion.py)
+           "light_level", "light_health", "range_source", "w_sonar",
+           "us_front", "phantoms"]
 
 
 class RunLogger:

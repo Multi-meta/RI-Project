@@ -36,12 +36,14 @@ from decision_maker import DecisionMaker  # noqa: E402
 from pick_place import build_manipulator, manip_log_row  # noqa: E402
 from display_dash import Dashboard, set_state_led  # noqa: E402
 from dynamic_map import DynamicObstacleMap  # noqa: E402
+from fault_injector import FaultInjector, lidar_health  # noqa: E402
 from localization import LocalizationManager  # noqa: E402
 from safety import SpeedGovernor  # noqa: E402
 from kinematics import inverse_kinematics  # noqa: E402
 from logger import MANIP_COLUMNS, CsvLogger, RunLogger  # noqa: E402
 from mapping import front_min_range  # noqa: E402
 from mission_kpis import MissionKPITracker  # noqa: E402
+from moving_obstacles import build_movers  # noqa: E402
 from perception import Perception, check_world_consistency  # noqa: E402
 from warehouse_grid import build_warehouse_grid  # noqa: E402
 
@@ -49,6 +51,51 @@ from warehouse_grid import build_warehouse_grid  # noqa: E402
 def log_dir():
     """Where run logs go (INTELLIBOT_LOG_DIR overrides <repo>/logs)."""
     return os.environ.get("INTELLIBOT_LOG_DIR", os.path.join(_ROOT, "logs"))
+
+
+class _Tee:
+    """Mirror stdout/stderr into logs/console<suffix>.log.
+
+    The Webots console is not saved anywhere, so warnings, state changes and
+    tracebacks were lost when Webots crashed. Every line also goes to the
+    original stream, so the Webots console looks exactly as before."""
+
+    def __init__(self, stream, fh):
+        self._stream, self._fh = stream, fh
+
+    def write(self, s):
+        try:
+            self._stream.write(s)
+        except Exception:
+            pass
+        try:
+            self._fh.write(s)
+            if "\n" in s:
+                self._fh.flush()
+        except Exception:
+            pass
+        return len(s)
+
+    def flush(self):
+        for f in (self._stream, self._fh):
+            try:
+                f.flush()
+            except Exception:
+                pass
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def start_console_log(suffix=""):
+    try:
+        os.makedirs(log_dir(), exist_ok=True)
+        fh = open(os.path.join(log_dir(), f"console{suffix}.log"), "w",
+                  encoding="utf-8", buffering=1)
+    except OSError:
+        return
+    sys.stdout = _Tee(sys.stdout, fh)
+    sys.stderr = _Tee(sys.stderr, fh)
 
 
 def apply_env_overrides():
@@ -81,6 +128,12 @@ def apply_env_overrides():
     dyn = os.environ.get("INTELLIBOT_DYN_REPLAN")
     if dyn in ("0", "1"):
         config.DYNAMIC_REPLANNING_ENABLED = dyn == "1"
+    disp = os.environ.get("INTELLIBOT_DISPLAY")
+    if disp in ("0", "1"):
+        config.DISPLAY_ENABLED = disp == "1"
+    pen = os.environ.get("INTELLIBOT_PEN")
+    if pen in ("0", "1"):
+        config.PEN_ENABLED = pen == "1"
 
 
 def planner_factory(grid):
@@ -203,6 +256,7 @@ def main():
     run_idx, log_suffix = apply_campaign_start(robot)
     if robot_id != "INTELLIBOT":
         log_suffix = f"_{robot_id}" + log_suffix
+    start_console_log(log_suffix)
 
     interactive = getattr(config, "INTERACTIVE_MODE", False)
 
@@ -296,15 +350,11 @@ def main():
         receiver.enable(timestep)
 
 
-    cart1_node, cart2_node = None, None
-    fast_sphere_node, fast_cart_node = None, None
-    try:
-        cart1_node = robot.getFromDef("CART_1")
-        cart2_node = robot.getFromDef("CART_2")
-        fast_sphere_node = robot.getFromDef(getattr(config, "FAST_SPHERE_DEF", "FAST_SPHERE"))
-        fast_cart_node = robot.getFromDef(getattr(config, "FAST_CART_DEF", "FAST_CART"))
-    except Exception:
-        pass
+    # CART_1 patrol, CART_2 cross aisle, DECOY_BOT (yellow look-alike robot)
+    movers = build_movers(robot)
+    if movers:
+        print(f"[{robot_id}] moving obstacles: " + ", ".join(m.name for m in movers))
+    faults = FaultInjector(robot, timestep)
 
     # The pose the robot navigates with. Initialised from the first VALID
     # GPS + IMU sample inside the loop (sensors are NaN before the first
@@ -363,6 +413,8 @@ def main():
         report["camera_health"] = {"final": dict(cam_health),
                                    "transitions": dict(cam_transitions)}
         report["safety"] = governor.summary()
+        report["faults"] = faults.summary()
+        report["moving_obstacles"] = {m.name: m.summary() for m in movers}
         if obstacle_map is not None:
             report["dynamic_map"] = {"updates": obstacle_map.updates,
                                      "cells_marked_total": obstacle_map.marked_total}
@@ -388,13 +440,31 @@ def main():
 
     cam_health = {}
     cam_transitions = {}
+    lidar_state = {"health": "OK", "frac": 0.0}
+    v, w = 0.0, 0.0
 
     while robot.step(timestep) != -1:
         sim_time = robot.getTime()
+        faults.update(sim_time)
         pose = perception.get_pose()
         odom_pose, _ = perception.get_odometry()
         scan, angles = perception.get_lidar()
-        frames = perception.get_camera_frames(sim_time)
+        # ---- LiDAR health from the rays the driver flags invalid (NaN), then
+        # NaN -> inf ("no return") for the rest of the stack
+        scan = faults.apply_lidar(scan, angles)
+        l_health, l_frac = lidar_health(scan, lidar_state["health"])
+        if perception.lidar.getRangeImage() is None:
+            l_health, l_frac = "FAILED", 1.0
+        if l_health != lidar_state["health"]:
+            print(f"[LIDAR] [t={sim_time:.2f}s] {lidar_state['health']} -> {l_health} "
+                  f"({l_frac * 100:.0f}% invalid rays)")
+        lidar_state.update(health=l_health, frac=l_frac)
+        scan = np.where(np.isnan(scan), np.inf, scan)
+        # a still robot sees a still scene: identical frames are only a
+        # FROZEN-camera symptom while the base is moving
+        base_moving = abs(v) > 0.02 or abs(w) > 0.05
+        frames = perception.get_camera_frames(sim_time, moving=base_moving)
+        frames = faults.apply_cameras(frames)
         for role, fr in frames.items():          # log camera health transitions
             if cam_health.get(role) != fr.health:
                 print(f"[CAMERA] [t={sim_time:.2f}s] {role}: "
@@ -404,22 +474,15 @@ def main():
         dets = perception.get_detections(frames["front"].image,
                                          frames["rear"].image)
 
-        if cart1_node is not None:
-            c1_vx = 0.4 if (int(sim_time / 12.5) % 2 == 0) else -0.4
-            cart1_node.setVelocity([c1_vx, 0.0, 0.0, 0.0, 0.0, 0.0])
-        if cart2_node is not None:
-            c2_vy = 0.3 if (int(sim_time / 16.0) % 2 == 0) else -0.3
-            cart2_node.setVelocity([0.0, c2_vy, 0.0, 0.0, 0.0, 0.0])
-
-        # Drive fast-moving obstacles (0.75 m/s sphere, 0.70 m/s cart) across main transit path
-        if fast_sphere_node is not None:
-            s_speed = getattr(config, "FAST_SPHERE_SPEED", 0.75)
-            s_vy = s_speed if (int(sim_time / 3.5) % 2 == 0) else -s_speed
-            fast_sphere_node.setVelocity([0.0, s_vy, 0.0, 0.0, 0.0, 0.0])
-        if fast_cart_node is not None:
-            c_speed = getattr(config, "FAST_CART_SPEED", 0.70)
-            c_vy = c_speed if (int(sim_time / 4.0) % 2 == 0) else -c_speed
-            fast_cart_node.setVelocity([0.0, c_vy, 0.0, 0.0, 0.0, 0.0])
+        # moving obstacles (carts + decoy robot): shuttle on their lanes and
+        # yield to the robot instead of shoving it
+        if movers:
+            try:
+                rp = self_node.getPosition()
+            except Exception:
+                rp = None
+            for m in movers:
+                m.step(rp)
 
         # ---- bumpers: a collision EVENT on the rising edge (not every step)
         for key, dev, front in (("f", bumper_f, True), ("r", bumper_r, False)):
@@ -436,18 +499,24 @@ def main():
         # ---- localisation (EKF): signed encoder increments + GPS + IMU
         gps_raw = perception.gps.getValues()
         imu_raw = perception.imu.getRollPitchYaw()
-        gps_xy = (gps_raw[0], gps_raw[1]) if gps_raw is not None else None
-        imu_yaw = imu_raw[2] if imu_raw is not None else None
+        gps_xy = faults.apply_gps((gps_raw[0], gps_raw[1]) if gps_raw is not None else None)
+        if (step_i in (5, 200) and imu_raw is not None
+                and all(math.isfinite(a) for a in imu_raw[:2])):
+            # a pitched chassis tilts the single-layer LiDAR plane: its rays
+            # then hit the floor at h / tan(pitch) (0.14 m / tan 3 deg = 2.7 m)
+            print(f"[IMU] [t={sim_time:.2f}s] chassis roll {math.degrees(imu_raw[0]):+.2f} deg, "
+                  f"pitch {math.degrees(imu_raw[1]):+.2f} deg")
+        imu_yaw = faults.apply_imu(imu_raw[2] if imu_raw is not None else None)
         odo = perception.odometry
-        pose_est = loc.step(sim_time, (odo.last_ds, odo.last_dtheta), gps_xy, imu_yaw)
+        odo_inc = faults.apply_odometry(odo.last_ds, odo.last_dtheta)
+        pose_est = loc.step(sim_time, odo_inc, gps_xy, imu_yaw)
         jump = loc.consume_pose_jump()
         if jump is not None:
             fsm.notify_pose_jump(jump, sim_time)
         operating_pose = pose_est if pose_est is not None else pose
         fsm.health["localization"] = loc.status
         fsm.health["loc_ok"] = loc.healthy()
-        fsm.health["lidar"] = ("FAILED" if perception.lidar.getRangeImage() is None
-                               else "OK")
+        fsm.health["lidar"] = lidar_state["health"]
         gt = None
         try:
             p_gt = self_node.getPosition()
@@ -468,6 +537,13 @@ def main():
                     pass
             gt_err.append((ex, ey, eth, nees))
             kpi_tracker.update_ekf_error(ex, ey, eth)
+            if faults.active:
+                faults.observe(loc_status=loc.status, ekf_err=math.hypot(ex, ey),
+                               lidar_health=lidar_state["health"],
+                               camera_health="/".join(cam_health.get(k, "-")
+                                                      for k in ("front", "rear")),
+                               speed_cap=governor.last.get("reason"),
+                               camera_stats=frames["front"].stats)
 
         if emitter and int(sim_time * 10) % 10 == 0:
             try:
@@ -517,10 +593,13 @@ def main():
                      f"v_cap {g.get('v_cap', 0):.2f} ({g.get('reason', '-')}) clr {g.get('clearance', float('nan')):.2f}",
                      f"bumps F{collisions['front']} R{collisions['rear']} carrying {int(fsm.carrying)}",
                      f"shelf {occ}"]
+            if faults.active:
+                lines.append(f"FAULT {faults.label()}"[:48])
             dash.draw(operating_pose, fsm.state, sim_time, wps, fsm.pkg_pos,
                       extra={"dyn_points": obstacle_map.occupied_points() if obstacle_map else None,
                              "gt_pose": gt, "lines": lines,
-                             "warn": loc.status not in ("OK",) or bool(g.get("emergency"))})
+                             "warn": (loc.status not in ("OK",) or bool(g.get("emergency"))
+                                      or bool(faults.active))})
 
         if not finished and step_i % log_every == 0:
             logger.log(
@@ -550,6 +629,9 @@ def main():
                            if math.isfinite(governor.last.get("clearance", math.inf)) else ""),
                 dyn_cells=obstacle_map.count() if obstacle_map else 0,
                 replans=fsm.replans,
+                lidar_health=lidar_state["health"],
+                lidar_invalid=round(lidar_state["frac"], 3),
+                faults=faults.label(),
             )
         step_i += 1
         if finished:

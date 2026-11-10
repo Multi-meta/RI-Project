@@ -254,6 +254,13 @@ class RackOccupancy:
     def free(self, slot_id: str):
         self.occupied.pop(slot_id, None)
 
+    def slot_of(self, parcel_id: str) -> Optional[str]:
+        """Slot this run placed `parcel_id` in, or None if it never placed it."""
+        for slot_id, what in self.occupied.items():
+            if what == parcel_id:
+                return slot_id
+        return None
+
     def summary(self) -> str:
         """Short text for the dashboard: filled / blocked slots."""
         if not self.occupied:

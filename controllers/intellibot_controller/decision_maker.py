@@ -60,6 +60,7 @@ import shelving
 from docking import Docker
 from recovery_behaviors import RecoveryBehavior, RecoveryConfig, RecoveryState
 from safety import corridor_clearance
+from estimation import range_at_bearing
 
 # states in which the base follows a planned route (speed governor in NAV
 # mode, dynamic replanning active)
@@ -153,6 +154,7 @@ class DecisionMaker:
         self.follower = None
         self.detection_streak = 0
         self.scan_angle_accum = 0.0
+        self._find_turn_logged = False
         self.pick_deadline = None
         self.carrying = False           # package attached to the robot
         self.replans = 0
@@ -206,6 +208,7 @@ class DecisionMaker:
         handler = getattr(self, f"_do_{self.state.lower()}")
         self._urgent = False
         v, w = handler(pose, scan, angles, detections, sim_time, dt)
+        self._last_req = (v, w)          # what navigation WANTS (before the governor)
         if self.state.startswith(("ARM_", "VERIFY_")):
             # the arm moves only with the base STOPPED: exact zero, no
             # deceleration ramp carried over from docking
@@ -264,6 +267,7 @@ class DecisionMaker:
         self.path_length_total = 0.0
         self.detection_streak = 0
         self.scan_angle_accum = 0.0
+        self._find_turn_logged = False
         self.mission_report = None
         self.pkg_pos = None
         self.carrying = False
@@ -278,6 +282,24 @@ class DecisionMaker:
         self.dock_log = []
         self.log(f"[t={sim_time:.1f}s] Task: pick {config.TASK_PACKAGE} "
                  f"({config.TASK_PACKAGE_COLOR}), deliver to Zone {config.TASK_ZONE}")
+        placed = self.occupancy.slot_of(config.TASK_PACKAGE)
+        if placed is not None:
+            # This run already put that parcel on a rack: it is no longer in
+            # the pickup area, and the arm only picks from the floor. Without
+            # this check the camera saw it on the rack, the estimate was
+            # > 1.5 m from the pickup position, _validate_pkg_estimate snapped
+            # it back to the (now empty) pickup spot and DOCK_PICK failed with
+            # PARCEL_FACE_NOT_FOUND_BY_LIDAR -> ERROR, ending the session.
+            msg = (f"{config.TASK_PACKAGE} is already on rack slot {placed} "
+                   f"(delivered earlier in this run), not in the pickup area")
+            if getattr(config, "INTERACTIVE_MODE", False):
+                self.log(f"[t={sim_time:.1f}s] TASK REJECTED: {msg} — choose another parcel")
+                self._set_state("AWAIT_INPUT", sim_time)
+                return 0.0, 0.0
+            self.failure_reason = f"TASK_REJECTED: {msg}"
+            self.log(f"[t={sim_time:.1f}s] MISSION FAILED: {self.failure_reason}")
+            self._enter_error(sim_time)
+            return 0.0, 0.0
         if self.manip is not None:
             # make sure the arm is stowed (known pose, inside the footprint)
             # before the base moves at all
@@ -314,6 +336,23 @@ class DecisionMaker:
 
         if self.detection_streak >= config.DETECTION_CONSEC:
             est = self.estimator(target[0], pose, scan, angles)
+            if (est is not None and math.isfinite(est[0]) and math.isfinite(est[1])
+                    and scan is not None and angles is not None
+                    and (abs(abs(est[2]) - math.pi) < config.LIDAR_REAR_BLIND_HALF
+                         or not math.isfinite(range_at_bearing(scan, angles, est[2])))
+                    and self.scan_angle_accum < config.FIND_MAX_TURNS * 2.0 * math.pi):
+                # No LiDAR return along the parcel's bearing: the arm's rear
+                # post blinds +-6 deg straight behind the LiDAR. The estimate
+                # would fall back to the bbox-size range (~0.3 m short at 3 m,
+                # docking then cannot find the face). Turn a little towards the
+                # parcel (it stays in the camera view) until the LiDAR sees it.
+                if not self._find_turn_logged:
+                    self._find_turn_logged = True
+                    self.log(f"[t={sim_time:.1f}s] {config.TASK_PACKAGE} seen at bearing "
+                             f"{math.degrees(est[2]):.0f} deg but the LiDAR has no return "
+                             f"there (rear blind sector) — turning to range it")
+                self.scan_angle_accum += abs(config.FIND_ROT_SPEED) * dt
+                return 0.0, math.copysign(min(0.5, config.FIND_ROT_SPEED), est[2])
             if est is not None and math.isfinite(est[0]) and math.isfinite(est[1]):
                 px, py, phi, d = est
 
@@ -521,7 +560,11 @@ class DecisionMaker:
         self.replan_reasons[reason] = self.replan_reasons.get(reason, 0) + 1
 
     def _stuck(self, pose, sim_time):
-        moving = abs(self._last_cmd[0]) > 0.05
+        # judged on the REQUESTED command: when the governor holds the base at
+        # 0 m/s next to an obstacle (clearance cap), the robot is just as
+        # stuck — using the governed command hid that and froze the mission
+        req = getattr(self, "_last_req", self._last_cmd)
+        moving = abs(req[0]) > 0.05 or abs(self._last_cmd[0]) > 0.05
         if self._progress_ref is None or not moving:
             self._progress_ref = (sim_time, pose[0], pose[1])
             return False
@@ -991,7 +1034,9 @@ class DecisionMaker:
             else:
                 self._set_state("DONE", sim_time)
         elif self.follower.status == "BLOCKED":
-            self.log(f"[t={sim_time:.1f}s] BLOCKED during DELIVER (LiDAR safety stop)")
+            if sim_time - getattr(self, "_blocked_log_t", -1e9) > 2.0:   # once per 2 s, not per step
+                self._blocked_log_t = sim_time
+                self.log(f"[t={sim_time:.1f}s] BLOCKED during DELIVER (LiDAR safety stop)")
             goal = self._delivery_goal()
             return self._handle_blocked(pose, scan, angles, goal, sim_time)
         return v, w
@@ -1026,7 +1071,9 @@ class DecisionMaker:
             self.log(f"[t={sim_time:.1f}s] Reached center — awaiting next task.")
             self._set_state("AWAIT_INPUT", sim_time)
         elif self.follower.status == "BLOCKED":
-            self.log(f"[t={sim_time:.1f}s] BLOCKED during RETURN_TO_CENTER")
+            if sim_time - getattr(self, "_blocked_log_t", -1e9) > 2.0:   # once per 2 s, not per step
+                self._blocked_log_t = sim_time
+                self.log(f"[t={sim_time:.1f}s] BLOCKED during RETURN_TO_CENTER")
             cx, cy, _ = config.ROBOT_START
             return self._handle_blocked(pose, scan, angles, (cx, cy), sim_time)
         return v, w

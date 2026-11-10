@@ -145,7 +145,7 @@ BODY_MASS = 2.0
 WHEEL_RADIUS = 0.05
 WHEEL_SEPARATION = 0.24                       # between wheel centers
 WHEEL_WIDTH = 0.04
-MAX_WHEEL_SPEED = 12.0                        # rad/s (motor limit)
+MAX_WHEEL_SPEED = 20.0                        # rad/s (motor limit; 1.0 m/s at the rim — was 12)
 CASTER_RADIUS = 0.03
 ROBOT_RADIUS = 0.18                           # circumscribed radius for planning
 SAFETY_MARGIN = 0.07
@@ -179,8 +179,8 @@ GRID_MIN_RADIUS = 0.05                        # lidar min range (validity)
 ASTAR_TIE_EPS = 1e-6                          # heuristic tie-break weight
 
 # ---------------------------------------------------------------- 6. Control ---
-V_MAX = 0.30                                  # m/s cruise limit
-W_MAX = 1.5                                   # rad/s turn limit
+V_MAX = 0.45                                  # m/s cruise limit (governor OFF; was 0.30)
+W_MAX = 2.2                                   # rad/s turn limit (was 1.5)
 WP_TOLERANCE = 0.10                           # m, intermediate waypoint
 GOAL_TOLERANCE = 0.15                         # m, final waypoint
 SLOWDOWN_DIST = 0.50                          # m, begin slowing near waypoint
@@ -220,14 +220,14 @@ RECOVERY_ROTATE_CLEAR = 0.08                  # m, min clearance around the body
 
 # --- safety.SpeedGovernor (dynamic speed limit; docs/ankit_implementation_report.md)
 SPEED_GOVERNOR_ENABLED = True                 # False = legacy fixed V_MAX (ablation)
-V_CRUISE = 0.45                               # m/s, governed cruise (was a fixed 0.30)
-V_CARRY = 0.35                                # m/s, cap while a parcel is latched on the arm
+V_CRUISE = 0.70                               # m/s, governed cruise (was 0.45; fixed 0.30 before that)
+V_CARRY = 0.50                                # m/s, cap while a parcel is latched on the arm (was 0.35)
 V_APPROACH_MIN = 0.10                         # m/s, floor of the goal-approach ramp
 SAFETY_APPROACH_DIST = 0.80                   # m, start of the goal-approach ramp
 V_DEGRADED = 0.12                             # m/s, cap with degraded LiDAR / localisation
-SAFETY_BRAKE_DECEL = 0.8                      # m/s^2, assumed braking deceleration (conservative)
-SAFETY_ACCEL = 0.6                            # m/s^2, comfort acceleration
-SAFETY_W_ACCEL = 6.0                          # rad/s^2, yaw-rate ramp
+SAFETY_BRAKE_DECEL = 0.8                      # m/s^2, assumed braking deceleration (kept conservative: governs speed near obstacles)
+SAFETY_ACCEL = 1.0                            # m/s^2, comfort acceleration (was 0.6)
+SAFETY_W_ACCEL = 9.0                          # rad/s^2, yaw-rate ramp (was 6.0)
 SAFETY_REACTION_TIME = 0.10                   # s, sensing + control latency
 SAFETY_STOP_MARGIN = 0.10                       # m, clearance kept after braking (emergency below)
 SAFETY_LATERAL_MARGIN = 0.05                  # m, corridor half width = BODY_WIDTH/2 + this
@@ -259,6 +259,12 @@ LIDAR_ANGLE_OFFSET = 0.02                     # rad, from calibration
 # this radius are the robot itself and are discarded (-> inf). Nothing
 # external can be closer than the bumpers (0.17 m), so no real obstacle is lost.
 LIDAR_SELF_FILTER_RANGE = 0.15                # m
+# Measured in Webots (2026-11-10): that post blinds rays i=353..359 and 0..6,
+# i.e. +-6 deg straight BEHIND the LiDAR, and the ray-angle calibration is
+# weakest at the index wrap. A parcel seen there is turned out of this sector
+# before its LiDAR range is trusted (FIND_PACKAGE), otherwise the estimate
+# falls back to the bbox size (~0.3 m short at 3 m) and docking fails.
+LIDAR_REAR_BLIND_HALF = math.radians(12.0)    # rad, half-width of the distrusted rear sector
 
 # Camera
 # Both cameras use a PLANAR projection. Webots limits a planar camera's
@@ -288,6 +294,8 @@ CAMERA_BLANK_STD_MIN = 2.0                    # grey-level std below this = blan
 CAMERA_FROZEN_FRAMES = 30                     # identical consecutive frames = frozen
 CAMERA_NOMINAL_MEAN = 90.0                    # grey level of a normally lit frame
 CAMERA_DARK_MEAN = 15.0                       # below: camera treated as blind (lights off)
+CAMERA_LOW_CONTRAST_STD = 12.0                # grey std below: LOW_CONTRAST (dense smoke). Measured: normal
+                                              # views 20-100, close-range rack views ~20, 1 m smoke 15-20
 
 # Detector (OpenCV hue 0-180 scale). Kept out of the yellow(~30)/cyan(~90)
 # hue bands so zone patches can never be confused with packages.
@@ -306,7 +314,7 @@ ASPECT_MIN, ASPECT_MAX = 0.6, 1.6             # bbox aspect ratio window
 PKG_BEARING_WINDOW = math.radians(3.0)        # lidar min-range window around bearing
 
 # ---------------------------------------------------------------- 8. FSM ---
-FIND_ROT_SPEED = 0.6                          # rad/s scan rotation
+FIND_ROT_SPEED = 1.0                          # rad/s scan rotation (was 0.6)
 FIND_MAX_TURNS = 2.0                          # full revolutions before timeout
 DETECTION_CONSEC = 2                          # consecutive frames to accept
 APPROACH_DISTANCE = 0.45                      # m, stand-off from package
@@ -508,6 +516,13 @@ LOC_GPS_STALE_TIME = 0.5                          # s without a valid fix -> GPS
 LOC_IMU_STALE_TIME = 0.5                          # s
 EKF_KIDNAP_TIME = 0.5                             # s of continuous GPS rejection -> relocalise
 EKF_KIDNAP_MAX_SPREAD = 0.30                      # m, rejected fixes must agree (not a glitch)
+# Heading counterpart: the IMU is the only absolute heading sensor. When the
+# robot is twisted by a push/collision the wheels do not see it, the IMU yaw
+# innovation exceeds the gate, and the EKF used to keep the WRONG heading
+# (measured: 15 deg for ~5 s). Consistent rejected IMU yaws for this long
+# -> heading re-anchored to the IMU (a glitching IMU jumps around and is not).
+EKF_IMU_REANCHOR_TIME = 0.3                       # s of continuous IMU rejection
+EKF_IMU_REANCHOR_SPREAD = math.radians(3.0)       # rad, rejected yaws must agree
 LOC_SIGMA_HEALTHY = 0.25                          # m, max position sigma for "healthy"
 
 # ---------------------------------------------------------------- Tracking & Fusion ---
@@ -626,14 +641,25 @@ TRAFFIC_YIELD_DISTANCE = 1.0                       # m, yield at intersections
 TRAFFIC_RESERVATION_HORIZON = 5.0                  # s, space-time planning
 
 # ---------------------------------------------------------------- Fault Injection ---
-# Scenarios defined in scenario_runner.py
-# Fault types: 'lights_off', 'lights_dim', 'lidar_dropout', 'gps_dropout',
-#              'camera_blind', 'stuck_at', 'bias', 'comm_loss'
+# fault_injector.py (wired into intellibot_controller.py). Schedule with
+#   INTELLIBOT_FAULTS="type@start[+duration][:param],..."  (overrides FAULT_SCHEDULE)
+# or press hotkeys in the Webots 3D view (FAULT_HOTKEYS). Types: lights_dim,
+# lights_off, smoke, gps_dropout, gps_bias, gps_noise, imu_dropout, imu_bias,
+# lidar_dropout, lidar_sector, wheel_slip, camera_blind.
+FAULT_SCHEDULE = ""                           # e.g. "lights_off@30+40,smoke@80+40:1.2"
+FAULT_HOTKEYS = True                          # live injection from the Webots keyboard
+LIGHT_DEFS = ("DIRLIGHT_1", "DIRLIGHT_2")     # lights dimmed / switched off
+BACKGROUND_DEF = "BACKGROUND"                 # Background node (luminosity scaled with the lights)
+SMOKE_FOG_DEF = "SMOKE"                       # Fog node; visibilityRange 0 = no smoke
+SMOKE_LIDAR_DROP = 0.15                       # fraction of rays flagged invalid in smoke (-> DEGRADED)
+SMOKE_LIDAR_BACKSCATTER = 0.004               # fraction of rays with a spurious short echo
+SMOKE_LIDAR_NOISE = 0.03                      # m, extra range noise in smoke
 
 # ---------------------------------------------------------------- Moving Obstacles ---
 MOVING_OBSTACLE_LANES = {
     'patrol_north': [(-2.5, 2.4), (2.5, 2.4)],      # patrol lane endpoints (v1)
-    'cross_aisle_1': [(0.8, -2.4), (0.8, 2.4)],    # crossing lane (v1)
+    'cross_aisle_1': [(0.72, -2.4), (0.72, 2.4)],  # crossing lane (v1); x 0.72 keeps the 0.4 m
+                                                   # cart 3 cm clear of CYL_OBST_1 (was 0.8: grazed it)
     'patrol_north_v2': [(-4.5, 3.2), (4.5, 3.2)],  # patrol lane (v2)
     'cross_aisle_1_v2': [(1.5, -3.2), (1.5, 3.2)], # crossing lane (v2)
 }
@@ -642,10 +668,28 @@ MOVING_OBSTACLE_SPEEDS = {
     'normal': 0.5,
     'fast': 0.8
 }
-FAST_SPHERE_DEF = "FAST_SPHERE"
-FAST_CART_DEF = "FAST_CART"
-FAST_SPHERE_SPEED = 0.75
-FAST_CART_SPEED = 0.70
+# DECOY_BOT: a yellow look-alike robot (body, two wheels, casters, LiDAR puck,
+# camera bar, beacon) that replaces the old grey FAST_SPHERE. It has NO
+# controller, arm or gripper — it never picks anything; the supervisor
+# (moving_obstacles.DecoyBot) just drives it up and down one lane. It is
+# KINEMATIC (no Physics node, pose set every step): the old velocity-forced
+# sphere either fell asleep in ODE and froze, or shoved the robot with
+# unlimited force. When IntelliBot is ahead of it the decoy stops with its
+# beacon flashing (it "gives way"); if the robot still has not passed after
+# DECOY_MAX_YIELD s it backs up to clear the crossing, then carries on.
+# Lane x = -1.5, y in [-1.20, 0.15]: crosses the start -> pickup route and
+# stops short of OBST_3 (-1.7, 0.6). The brown FAST_CART was REMOVED.
+DECOY_DEF = "DECOY_BOT"
+DECOY_LANE = ((-1.5, -1.20), (-1.5, 0.15))    # (x, y) lane end points (body centre)
+DECOY_SPEED = 0.25                            # m/s along the lane (the old sphere did 0.75)
+DECOY_TURN_RATE = 1.5                         # rad/s, turns round in place at each lane end
+DECOY_BODY = (0.30, 0.20, 0.14)               # m, body length x width x height (IntelliBot-sized)
+DECOY_RADIUS = 0.18                           # m, circumscribed footprint radius
+DECOY_COLOR = (0.98, 0.76, 0.05)              # safety yellow (outside every package HSV window)
+DECOY_YIELD_DIST = 0.45                       # m surface gap: IntelliBot ahead this close -> stop
+DECOY_MAX_YIELD = 4.0                         # s stopped before backing up to clear the way
+DECOY_BACKOFF_DIST = 0.45                     # m, how far it backs up
+DECOY_HOLD_MAX = 20.0                         # s, max wait after backing up before carrying on
 
 CART_DEFS = {
     'CART_1': {'lane': 'patrol_north', 'speed': 0.4, 'axis': 0},
@@ -779,8 +823,8 @@ ARM_DOCK_RANGE_TOL = 0.008                    # m
 ARM_DOCK_LATERAL_TOL = 0.015                  # m (open gripper clears the parcel by 0.03 m/side)
 ARM_DOCK_HEADING_TOL = math.radians(1.5)      # rad
 ARM_DOCK_POINT_TOL = 0.012                    # m, pre-dock point stabilisation
-ARM_DOCK_V_MAX = 0.06                         # m/s
-ARM_DOCK_W_MAX = 0.6                          # rad/s
+ARM_DOCK_V_MAX = 0.10                         # m/s (was 0.06; the creep is proportional near the target)
+ARM_DOCK_W_MAX = 0.9                          # rad/s (was 0.6)
 ARM_DOCK_K_RANGE = 0.8                        # 1/s, creep gain on range error
 ARM_DOCK_K_HEADING = 2.0                      # 1/s, heading gain
 ARM_DOCK_K_LATERAL = 3.0                      # rad/m, heading offset per metre of lateral error (creep)

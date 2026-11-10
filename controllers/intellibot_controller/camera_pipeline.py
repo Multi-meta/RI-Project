@@ -18,6 +18,9 @@ Frame health (independent per camera, so a bad rear feed can never
 silently stand in for the front feed):
     BLANK  : grey-level standard deviation < CAMERA_BLANK_STD_MIN (lens
              covered, lights off, degenerate field of view, ...)
+    DARK   : grey-level mean < CAMERA_DARK_MEAN (lights off): bearings from
+             this camera get infinite variance (camera_bearing_variance)
+    LOW_CONTRAST : grey std < CAMERA_LOW_CONTRAST_STD (smoke / fog)
     FROZEN : CAMERA_FROZEN_FRAMES identical consecutive frames
 """
 
@@ -58,10 +61,15 @@ def bgra_to_bgr(buffer, width: int, height: int) -> np.ndarray:
 
 
 def frame_stats(bgr: np.ndarray) -> dict:
-    """Brightness / contrast summary used for health checks and logging."""
-    grey = bgr.mean(axis=2)
+    """Brightness / contrast summary used for health checks and logging.
+
+    Computed on every 2nd pixel in float32: the full-resolution float64 copy
+    (2 x 600 KiB per frame, 60 frames/s per camera) was pure allocation churn,
+    and was where the controller died when Webots had exhausted the RAM."""
+    sub = bgr[::2, ::2]
+    grey = sub.mean(axis=2, dtype=np.float32)
     return {"mean": float(grey.mean()), "std": float(grey.std()),
-            "min": int(bgr.min()), "max": int(bgr.max())}
+            "min": int(sub.min()), "max": int(sub.max())}
 
 
 @dataclass
@@ -87,21 +95,32 @@ class FrameHealthMonitor:
         self._last_crc = None
         self._same = 0
 
-    def check(self, bgr: np.ndarray):
-        """-> (health, reason, stats)."""
+    def check(self, bgr: np.ndarray, moving: bool = True):
+        """-> (health, reason, stats).
+
+        moving: the robot base is moving. A simulated camera looking at a
+        static scene from a standing robot returns bit-identical frames, so
+        identical frames only count towards FROZEN while the base moves
+        (this produced false OK -> FROZEN flapping at every stop)."""
         stats = frame_stats(bgr)
         crc = zlib.crc32(bgr.tobytes())
-        self._same = self._same + 1 if crc == self._last_crc else 0
+        same = crc == self._last_crc
+        self._same = self._same + 1 if (same and moving) else 0
         self._last_crc = crc
         if stats["std"] < self.blank_std:
             return "BLANK", f"grey std {stats['std']:.2f} < {self.blank_std}", stats
+        if stats["mean"] < config.CAMERA_DARK_MEAN:
+            return "DARK", f"grey mean {stats['mean']:.1f} < {config.CAMERA_DARK_MEAN}", stats
+        if stats["std"] < config.CAMERA_LOW_CONTRAST_STD:
+            return "LOW_CONTRAST", f"grey std {stats['std']:.1f} < {config.CAMERA_LOW_CONTRAST_STD}", stats
         if self._same >= self.frozen_frames:
             return "FROZEN", f"{self._same + 1} identical frames", stats
         return "OK", "", stats
 
 
 def make_frame(source: str, buffer, width: int, height: int, t: float,
-               monitor: Optional[FrameHealthMonitor] = None) -> CameraFrame:
+               monitor: Optional[FrameHealthMonitor] = None,
+               moving: bool = True) -> CameraFrame:
     """Buffer -> CameraFrame (never raises; invalid input -> valid=False)."""
     try:
         bgr = bgra_to_bgr(buffer, width, height)
@@ -109,7 +128,10 @@ def make_frame(source: str, buffer, width: int, height: int, t: float,
         return CameraFrame(source, None, t, False, "INVALID", str(exc))
     if monitor is None:
         return CameraFrame(source, bgr, t, True, "OK", "", frame_stats(bgr))
-    health, reason, stats = monitor.check(bgr)
+    try:
+        health, reason, stats = monitor.check(bgr, moving)
+    except MemoryError:                 # never take the controller down
+        return CameraFrame(source, bgr, t, True, "INVALID", "health check: out of memory")
     # a blank/frozen frame is still a real image (e.g. lights off) — it is
     # passed on but flagged, so the health layer can de-weight the camera
     return CameraFrame(source, bgr, t, True, health, reason, stats)

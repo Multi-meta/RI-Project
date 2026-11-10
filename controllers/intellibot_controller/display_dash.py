@@ -7,11 +7,29 @@ using config.STATE_LED colors.
 
 Only this module touches the Display/LED devices; drawing is called at a
 low rate (~2 Hz) from the main loop to keep control timing clean.
+
+MEMORY LEAK FIX (2026-11-10): Webots R2025a leaks memory on EVERY
+Display.setFont() call. The dashboard called it 3x per refresh, and
+webots-bin grew ~60 MB/s (measured: private bytes 0.6 -> 10 GB) until it
+aborted with "unknown software exception 0x40000015" a few minutes into a GUI
+run; the controller then died with MemoryError. Bisected in batch runs:
+map/shapes/text drawn with a single setFont() stay flat at ~600 MB.
+So the font is set ONCE (first draw) and never again. The static map is also
+rasterised once and pasted as one image instead of ~2000 fillRectangle calls
+per refresh.
 """
 
 import math
 
+import numpy as np
+
 import config
+
+try:                                   # Webots Display pixel format
+    from controller import Display as _WbDisplay
+    _BGRA = _WbDisplay.BGRA
+except Exception:                      # unit tests / no Webots
+    _BGRA = 6
 
 # display palette (0xRRGGBB for Webots Display.setColor)
 COL_BG = 0xF4F5F7
@@ -40,6 +58,9 @@ class Dashboard:
         self.cell = min(self.w / self.cols, self.h / self.rows)
         self.ox = (self.w - self.cols * self.cell) / 2.0
         self.oy = (self.h - self.rows * self.cell) / 2.0
+        self._map_img = None           # Display ImageRef of the static map (made once)
+        self._map_failed = False
+        self._font_set = False         # setFont() leaks in Webots: call it ONCE
 
     # ------------------------------------------------------------- helpers
     def _cell_rect(self, row, col):
@@ -62,6 +83,9 @@ class Dashboard:
             warn         bool — draw the status lines in red
         """
         extra = extra or {}
+        if not self._font_set:
+            self.d.setFont("Arial", 9, False)
+            self._font_set = True
         self._draw_map()
         self._draw_dynamic(extra.get("dyn_points"))
         self._draw_route(waypoints)
@@ -86,11 +110,36 @@ class Dashboard:
 
     def _draw_lines(self, lines, warn):
         self.d.setColor(COL_WARN if warn else COL_TEXT)
-        self.d.setFont("Arial", 9, False)
         for i, line in enumerate(lines[:8]):
             self.d.drawText(str(line)[:48], 4, 42 + 12 * i)
 
+    def _map_raster(self):
+        """Static map (background + inflation + obstacles) as BGRA bytes."""
+        img = np.empty((self.h, self.w, 4), dtype=np.uint8)
+
+        def bgra(c):
+            return ((c & 0xFF), (c >> 8) & 0xFF, (c >> 16) & 0xFF, 0xFF)
+
+        img[:, :] = bgra(COL_BG)
+        for layer, col in ((self.occ, COL_INFL), (self.grid.static, COL_OCC)):
+            px = bgra(col)
+            rows, cols = np.nonzero(layer)
+            for r, c in zip(rows, cols):
+                x, y, cw, ch = self._cell_rect(r, c)
+                x0, y0 = int(x), int(y)
+                img[max(y0, 0):max(y0 + int(math.ceil(ch)), 0),
+                    max(x0, 0):max(x0 + int(math.ceil(cw)), 0)] = px
+        return img.tobytes()
+
     def _draw_map(self):
+        if self._map_img is None and not self._map_failed:
+            try:
+                self._map_img = self.d.imageNew(self._map_raster(), _BGRA, self.w, self.h)
+            except Exception:
+                self._map_failed = True        # fall back to primitives below
+        if self._map_img is not None:
+            self.d.imagePaste(self._map_img, 0, 0, False)
+            return
         self.d.setColor(COL_BG)
         self.d.fillRectangle(0, 0, self.w, self.h)
         self.d.setColor(COL_INFL)
@@ -134,9 +183,7 @@ class Dashboard:
 
     def _draw_text(self, state, sim_time):
         self.d.setColor(COL_TEXT)
-        self.d.setFont("Arial", 12, True)
-        self.d.drawText(f"STATE: {state}", 4, 14)
-        self.d.setFont("Arial", 10, False)
+        self.d.drawText(f"STATE: {state}", 4, 14)          # font set once (see top)
         self.d.drawText(f"t = {sim_time:6.1f} s", 4, 28)
 
 

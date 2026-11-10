@@ -93,6 +93,8 @@ class LocalizationManager:
         self.imu_health = _Health("imu", config.LOC_IMU_STALE_TIME, 30)
         self._reject_since = None
         self._reject_fixes = []
+        self._imu_reject = []           # [(t, yaw)] while the IMU is gated out
+        self.heading_reanchors = 0
         self.relocalizations = 0
         self.pose_jump = None           # (dx, dy, dtheta) of the last relocalisation, until consumed
         self.n_gps_accepted = 0
@@ -185,6 +187,10 @@ class LocalizationManager:
             acc = self.ekf.update_imu(float(imu_yaw), r_imu,
                                       gate_threshold=config.EKF_GATE_IMU)
             self.imu_health.observe(t, True, acc)
+            if acc:
+                self._imu_reject = []
+            else:
+                self._on_imu_rejected(t, float(imu_yaw))
         else:
             self.imu_health.observe(t, False)
         if gps_ok:
@@ -216,6 +222,29 @@ class LocalizationManager:
         else:
             self.status = "OK"
         return self.pose
+
+    def _on_imu_rejected(self, t, yaw):
+        """Heading re-anchor: consistent IMU yaws the gate keeps rejecting mean
+        the robot really turned without its wheels seeing it (push, collision)."""
+        self._imu_reject.append((t, yaw))
+        if t - self._imu_reject[0][0] < config.EKF_IMU_REANCHOR_TIME:
+            return
+        yaws = np.array([y for _, y in self._imu_reject])
+        ref = yaws[-1]
+        spread = float(np.max(np.abs(np.arctan2(np.sin(yaws - ref), np.cos(yaws - ref)))))
+        if spread > config.EKF_IMU_REANCHOR_SPREAD:
+            self._imu_reject = self._imu_reject[-1:]     # not consistent: keep waiting
+            return
+        old = float(self.ekf.x[2])
+        self.ekf.x[2] = ref
+        self.ekf.P[2, 2] = max(self.ekf.P[2, 2], config.EKF_R_IMU)
+        self.ekf.P[0, 2] = self.ekf.P[2, 0] = self.ekf.P[1, 2] = self.ekf.P[2, 1] = 0.0
+        self.heading_reanchors += 1
+        self._imu_reject = []
+        self.log(f"[LOC] [t={t:.2f}s] heading RE-ANCHORED to the IMU after "
+                 f"{config.EKF_IMU_REANCHOR_TIME:.1f} s of consistent rejected yaws: "
+                 f"{math.degrees(wrap_to_pi(ref - old)):+.1f} deg (odometry heading disagreed "
+                 f"with the IMU: wheel slip, a push/collision — or an IMU bias step)")
 
     def _on_gps_rejected(self, t, z, yaw):
         if self._reject_since is None:
@@ -264,7 +293,8 @@ class LocalizationManager:
                               if P is not None else None),
                     last_nis=(round(self.last_nis, 2) if math.isfinite(self.last_nis) else None),
                     gps_accepted=self.n_gps_accepted, gps_rejected=self.n_gps_rejected,
-                    relocalizations=self.relocalizations)
+                    relocalizations=self.relocalizations,
+                    heading_reanchors=self.heading_reanchors)
 
     def healthy(self):
         """True when the pose is good enough to map obstacles / drive at speed."""

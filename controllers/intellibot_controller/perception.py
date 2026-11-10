@@ -63,12 +63,12 @@ class CameraChannel:
     def available(self):
         return self.device is not None
 
-    def read(self, t=0.0):
+    def read(self, t=0.0, moving=True):
         """-> camera_pipeline.CameraFrame (valid=False until the first sample)."""
         if self.device is None:
             return make_frame(self.role, None, 0, 0, t)
         return make_frame(self.role, self.device.getImage(), self.width,
-                          self.height, t, self.monitor)
+                          self.height, t, self.monitor, moving)
 
 
 class Perception:
@@ -160,9 +160,10 @@ class Perception:
         return ranges, np.asarray(self._ray_angles)
 
     # ---------------------------------------------------------------- camera
-    def get_camera_frames(self, t=0.0):
+    def get_camera_frames(self, t=0.0, moving=True):
         """Both cameras -> {"front": CameraFrame, "rear": CameraFrame}."""
-        self.last_frames = {FRONT: self.front_cam.read(t), REAR: self.rear_cam.read(t)}
+        self.last_frames = {FRONT: self.front_cam.read(t, moving),
+                            REAR: self.rear_cam.read(t, moving)}
         return self.last_frames
 
     def get_frame(self):

@@ -6,6 +6,8 @@ Each scenario = world + environment variables; logs go to logs/final/<name>/
     python tools/run_scenario.py --list
     python tools/run_scenario.py S1_store_P3_B --runs 10          # needs Webots
     python tools/run_scenario.py camera_check --dry-run            # print the command
+    python tools/run_scenario.py F3_smoke_P3_B                     # fault-injection run
+    python tools/run_scenario.py S1_store_P3_B --faults "lights_off@20+30,gps_dropout@40+15"
 
 Set WEBOTS to the Webots executable if it is not on PATH, e.g.
     WEBOTS="/c/Program Files/Webots/msys64/mingw64/bin/webots.exe"   (Git Bash)
@@ -46,6 +48,34 @@ SCENARIOS = {
     "A_static_replan_P3_B": (MISSION, {"INTELLIBOT_TASK_PACKAGE": "P3", "INTELLIBOT_TASK_ZONE": "B",
                                        "INTELLIBOT_DYN_REPLAN": "0"}, True,
                              "ablation: replan only on the safety stop (no dynamic layer)"),
+    # Fault injection (controllers/intellibot_controller/fault_injector.py).
+    # INTELLIBOT_FAULTS = "type@start+duration[:param],..." (sim seconds);
+    # each one exercises a different fallback of the EKF / sensor-health layer.
+    **{name: (MISSION, {"INTELLIBOT_TASK_PACKAGE": "P3", "INTELLIBOT_TASK_ZONE": "B",
+                        "INTELLIBOT_FAULTS": spec}, True, desc)
+       for name, spec, desc in (
+           ("F1_lights_dim_P3_B", "lights_dim@15+40:0.25",
+            "lights at 25 %: camera R inflated by brightness, detection margin"),
+           ("F2_lights_off_P3_B", "lights_off@15+30",
+            "lights off: cameras BLANK -> ignored; LiDAR/GPS/IMU/odometry carry on"),
+           ("F3_smoke_P3_B", "smoke@15+40:0.7",
+            "smoke: Fog blinds cameras, LiDAR absorption/backscatter -> governor slows"),
+           ("F4_gps_dropout_P3_B", "gps_dropout@15+30",
+            "GPS lost: EKF dead-reckons on odometry + IMU, sigma grows, speed capped"),
+           ("F5_gps_bias_P3_B", "gps_bias@15+30:0.6",
+            "GPS offset 0.6 m: innovation gate rejects fixes (GPS_REJECTED)"),
+           ("F6_imu_bias_P3_B", "imu_bias@15+20:0.35",
+            "IMU yaw offset 0.35 rad: gate vs odometry heading"),
+           ("F7_lidar_dropout_P3_B", "lidar_dropout@25+6",
+            "LiDAR fails: governor stops the base until it returns"),
+           ("F8_lidar_sector_P3_B", "lidar_sector@15+30:90",
+            "front 90 deg of LiDAR blinded (dirty window): DEGRADED speed cap"),
+           ("F9_wheel_slip_P3_B", "wheel_slip@10+30:0.3",
+            "left wheel slips 30 %: odometry drift corrected by GPS + IMU"),
+           ("F10_combined_P3_B",
+            "lights_dim@15+60:0.3,smoke@25+30:0.5,gps_dropout@40+20,wheel_slip@45+15",
+            "stacked faults: dim + smoke + GPS loss + slip"),
+       )},
     "camera_check": (CHECK, {"MANIP_CHECK_MODE": "cameras"}, True,
                      "front/rear camera evidence vs Recognition ground truth"),
     "joint_check": (CHECK, {"MANIP_CHECK_MODE": "joints"}, False, "joint step responses"),
@@ -69,15 +99,19 @@ def main(argv=None):
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--faults", metavar="SPEC",
+                    help='override/add INTELLIBOT_FAULTS, e.g. "smoke@20+30:0.8,gps_dropout@40+15"')
     a = ap.parse_args(argv)
     if a.list or not a.scenario:
         for k, (w, env, r, d) in SCENARIOS.items():
-            print(f"{k:16s} {w:36s} {'(rendering)' if r else '':12s} {d}")
+            print(f"{k:22s} {w:36s} {'(rendering)' if r else '':12s} {d}")
         return 0
     if a.scenario not in SCENARIOS:
         print(f"unknown scenario {a.scenario!r}; use --list")
         return 2
     world, env, rendering, _desc = SCENARIOS[a.scenario]
+    if a.faults:
+        env = dict(env, INTELLIBOT_FAULTS=a.faults)
     rc_all = 0
     for i in range(a.runs):
         run_env = dict(os.environ, **env)

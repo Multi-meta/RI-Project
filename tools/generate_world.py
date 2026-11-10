@@ -13,6 +13,7 @@ Two worlds are written, identical except for the robot's controller:
 Run:  python tools/generate_world.py
 """
 
+import math
 import os
 import sys
 
@@ -377,6 +378,68 @@ def solid(defname, translation, size, color, physics=None, bounding=True):
     return s
 
 
+def build_decoy():
+    """Yellow look-alike robot (DEF config.DECOY_DEF): IntelliBot-sized body,
+    two wheels, casters, LiDAR puck, camera bar and a beacon — all VISUAL. It
+    is a plain kinematic Solid (no Robot node, no devices, no Physics): the
+    supervisor moves it along config.DECOY_LANE and spins the wheels / flashes
+    the beacon (moving_obstacles.DecoyBot). It never picks or places anything.
+    Body frame: x forward, origin on the floor between the wheels."""
+    d = config.DECOY_DEF
+    L, W, H = config.DECOY_BODY
+    yellow, black, dark, grey = config.DECOY_COLOR, (0.05, 0.05, 0.05), (0.18, 0.18, 0.18), (0.55, 0.55, 0.58)
+    z0 = 0.03                                         # body underside clearance
+    zc = z0 + H / 2
+    (x0, y0), (x1, y1) = config.DECOY_LANE
+    yaw = math.atan2(y1 - y0, x1 - x0)                # starts at end 0, facing end 1
+
+    def shape(geom, color):
+        return f"Shape {{ appearance {mat(color)} geometry {geom} }}"
+
+    def pose(t, child, rot=None):
+        r = f" rotation {rot}" if rot else ""
+        return f"Pose {{ translation {t}{r} children [ {child} ] }}"
+
+    wr, ww, wy = 0.05, 0.03, W / 2 + 0.015           # wheel radius / width / axle offset
+
+    def wheel(side, y):
+        tire = pose("0 0 0", shape(f"Cylinder {{ radius {wr} height {ww} subdivision 24 }}", black),
+                    rot="1 0 0 1.5708")
+        spokes = (shape(f"Box {{ size {1.4 * wr:.3f} {ww + 0.004:.3f} 0.012 }}", grey) + " "
+                  + shape(f"Box {{ size 0.012 {ww + 0.004:.3f} {1.4 * wr:.3f} }}", grey))
+        return (f"DEF {d}_WHEEL_{side} Pose {{ translation 0 {y:.3f} {wr} rotation 0 1 0 0 "
+                f"children [ {tire} {spokes} ] }}")
+
+    beacon = (f"Shape {{ appearance Appearance {{ material DEF {d}_BEACON Material {{ "
+              f"diffuseColor 1 0.55 0 emissiveColor 0.45 0.25 0 }} }} "
+              f"geometry Cylinder {{ radius 0.018 height 0.03 subdivision 16 }} }}")
+    parts = [
+        pose(f"0 0 {zc:.3f}", shape(f"Box {{ size {L} {W} {H} }}", yellow)),                     # body
+        pose(f"{L / 2 + 0.004:.3f} 0 {z0 + 0.03:.3f}", shape(f"Box {{ size 0.012 {W + 0.01:.3f} 0.035 }}", black)),   # front bumper
+        pose(f"{-L / 2 - 0.004:.3f} 0 {z0 + 0.03:.3f}", shape(f"Box {{ size 0.012 {W + 0.01:.3f} 0.035 }}", black)),  # rear bumper
+        pose(f"0 0 {z0 + H + 0.003:.3f}", shape(f"Box {{ size {L - 0.06:.3f} {W - 0.05:.3f} 0.006 }}", dark)),        # top deck
+        pose(f"0.03 0 {z0 + H + 0.024:.3f}", shape("Cylinder { radius 0.04 height 0.036 subdivision 20 }", black)),   # LiDAR puck
+        pose(f"0.03 0 {z0 + H + 0.008:.3f}", shape("Cylinder { radius 0.043 height 0.006 subdivision 20 }", grey)),
+        pose(f"{L / 2 + 0.002:.3f} 0 {z0 + H - 0.04:.3f}", shape("Box { size 0.008 0.09 0.026 }", black)),           # camera bar
+        pose(f"{-L / 2 + 0.05:.3f} 0 {z0 + H + 0.025:.3f}", shape("Cylinder { radius 0.007 height 0.05 subdivision 8 }", grey)),  # mast
+        pose(f"{-L / 2 + 0.05:.3f} 0 {z0 + H + 0.065:.3f}", beacon),
+        pose(f"{L / 2 - 0.04:.3f} 0 0.02", shape("Sphere { radius 0.02 subdivision 2 }", grey)),   # casters
+        pose(f"{-L / 2 + 0.04:.3f} 0 0.02", shape("Sphere { radius 0.02 subdivision 2 }", grey)),
+        wheel("L", wy), wheel("R", -wy),
+    ]
+    bound = (f"Group {{ children [ Pose {{ translation 0 0 {zc:.3f} children [ Box {{ size {L} {W} {H} }} ] }} "
+             f"Pose {{ translation 0 0 {wr} rotation 1 0 0 1.5708 children [ Cylinder {{ radius {wr} "
+             f"height {W + 2 * ww + 0.01:.3f} }} ] }} ] }}")
+    body = "\n    ".join(parts)
+    return (f"DEF {d} Solid {{\n"
+            f"  translation {x0} {y0} 0\n"
+            f"  rotation 0 0 1 {yaw:.4f}\n"
+            f"  children [\n    {body}\n  ]\n"
+            f"  name \"{d.lower()}\"\n"
+            f"  boundingObject {bound}\n"
+            f"}}\n")
+
+
 def build_robot(controller, def_name="INTELLIBOT", robot_name="INTELLIBOT",
                 start_pos=None, start_rot=None, controller_args=None,
                 body_color=None, has_arm=False, with_arm=False):
@@ -685,7 +748,12 @@ def build_world(controller):
              "}")
     w.append(f"DEF VIEWPOINT Viewpoint {{ orientation {VIEW_ANGLED[1]} "
              f"position {VIEW_ANGLED[0]} }}")
-    w.append("Background { skyColor [ 0.75 0.8 0.85 ] }")
+    w.append("DEF BACKGROUND Background { skyColor [ 0.75 0.8 0.85 ] luminosity 1 }")
+    # Fault injection (fault_injector.py): smoke = Webots Fog. visibilityRange 0
+    # disables it; the supervisor lowers it at run time (cameras only — the
+    # LiDAR attenuation is modelled in software by the injector).
+    w.append(f"DEF {getattr(config, 'SMOKE_FOG_DEF', 'SMOKE')} Fog {{ color 0.62 0.62 0.62 "
+             f"fogType \"EXPONENTIAL2\" visibilityRange 0 }}")
     # flat, even lighting; NO shadows to keep HSV detection stable. Two
     # opposed directional lights so EVERY vertical face (+-x, +-y) is lit by
     # one of them: with a single light the package faces pointing at the
@@ -771,22 +839,16 @@ def build_world(controller):
     w.append(solid(config.DYN_OBSTACLE_DEF, f"{dx} {dy} 0.2", "0.4 0.4 0.4",
                    COLORS["crate"], physics="Physics { density -1 mass 5 }"))
 
-    # Moving obstacles (Supervisor-driven)
-    w.append(solid("CART_1", "-2.5 2.4 0.15", "0.45 0.35 0.3",
-                   COLORS["cart_1"], physics="Physics { density -1 mass 4.0 }"))
-    w.append(solid("CART_2", "0.8 -2.4 0.15", "0.4 0.4 0.3",
-                   COLORS["cart_2"], physics="Physics { density -1 mass 4.0 }"))
-    # Fast moving obstacles (one sphere, one cart) between source and destination
-    w.append(f'DEF FAST_SPHERE Solid {{\n'
-             f'  translation -1.5 -1.2 0.22\n'
-             f'  children [ Shape {{ appearance {mat(COLORS["ball"])} '
-             f'geometry Sphere {{ radius 0.22 subdivision 4 }} }} ]\n'
-             f'  name "fast_sphere"\n'
-             f'  boundingObject Sphere {{ radius 0.22 subdivision 4 }}\n'
-             f'  physics Physics {{ density -1 mass 3.0 }}\n'
-             f'}}\n')
-    w.append(solid("FAST_CART", "1.6 1.2 0.15", "0.4 0.35 0.3",
-                   COLORS["crate"], physics="Physics { density -1 mass 4.0 }"))
+    # Moving obstacles, driven KINEMATICALLY by the supervisor
+    # (moving_obstacles.py): no Physics node, so they can neither be shoved off
+    # their lanes nor fall asleep in ODE, and never push the robot with force.
+    c1 = config.MOVING_OBSTACLE_LANES["patrol_north"][0]
+    c2 = config.MOVING_OBSTACLE_LANES["cross_aisle_1"][0]
+    w.append(solid("CART_1", f"{c1[0]} {c1[1]} 0.15", "0.45 0.35 0.3", COLORS["cart_1"]))
+    w.append(solid("CART_2", f"{c2[0]} {c2[1]} 0.15", "0.4 0.4 0.3", COLORS["cart_2"]))
+    # yellow look-alike robot (replaces the grey FAST_SPHERE; the brown
+    # FAST_CART that also crossed the transit lane was removed)
+    w.append(build_decoy())
 
     w.append(build_robot(controller, with_arm=True))
     w.append("")

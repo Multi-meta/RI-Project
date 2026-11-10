@@ -186,6 +186,24 @@ GOAL_TOLERANCE = 0.15                         # m, final waypoint
 SLOWDOWN_DIST = 0.50                          # m, begin slowing near waypoint
 TURN_IN_PLACE_THRESH = 0.6                    # rad, rotate first if worse
 STOP_DIST = 0.30                              # m, LiDAR safety stop
+
+# --- safety.SpeedGovernor (dynamic speed limit; docs/ankit_implementation_report.md)
+SPEED_GOVERNOR_ENABLED = True                 # False = legacy fixed V_MAX (ablation)
+V_CRUISE = 0.45                               # m/s, governed cruise (was a fixed 0.30)
+V_CARRY = 0.35                                # m/s, cap while a parcel is latched on the arm
+V_APPROACH_MIN = 0.10                         # m/s, floor of the goal-approach ramp
+SAFETY_APPROACH_DIST = 0.80                   # m, start of the goal-approach ramp
+V_DEGRADED = 0.12                             # m/s, cap with degraded LiDAR / localisation
+SAFETY_BRAKE_DECEL = 0.8                      # m/s^2, assumed braking deceleration (conservative)
+SAFETY_ACCEL = 0.6                            # m/s^2, comfort acceleration
+SAFETY_W_ACCEL = 6.0                          # rad/s^2, yaw-rate ramp
+SAFETY_REACTION_TIME = 0.10                   # s, sensing + control latency
+SAFETY_STOP_MARGIN = 0.10                       # m, clearance kept after braking (emergency below)
+SAFETY_LATERAL_MARGIN = 0.05                  # m, corridor half width = BODY_WIDTH/2 + this
+ROBOT_FRONT_EXTENT = 0.19                     # m, LiDAR axis -> front of body/bumper/stowed parcel
+SAFETY_NEAR_MISS = 0.05                       # m, clearance counted as a near miss
+SAFETY_LIDAR_DEGRADED_FRAC = 0.10             # NaN-ray fraction -> LiDAR degraded
+SAFETY_LIDAR_FAILED_FRAC = 0.50               # NaN-ray fraction -> LiDAR failed (stop)
 FRONT_CONE = math.radians(30.0)               # ± cone for safety stop
 
 # PID heading gains (tuned in Phase 5; documented in docs/progress_log.md)

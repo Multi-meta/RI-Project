@@ -71,8 +71,13 @@ class RecoveryBehavior:
                     # enter ERROR state
     """
     
-    def __init__(self, config: Optional[RecoveryConfig] = None):
+    def __init__(self, config: Optional[RecoveryConfig] = None, clock=None):
+        """clock: callable returning the SIMULATION time. In Webots the
+        wall clock (time.time, the old default) is unrelated to simulated
+        time — fast-forward made every timeout far too short, a slow
+        simulation far too long. Default stays time.time for old callers."""
         self.config = config or RecoveryConfig()
+        self.clock = clock if clock is not None else time.time
         self.state = RecoveryState.IDLE
         self.state_start_time = 0.0
         self.replan_count = 0
@@ -109,7 +114,8 @@ class RecoveryBehavior:
         return self.state
         
     def update(self, dt: float, front_clearance: float, rear_clearance: float, 
-               current_heading: float, current_pos: tuple) -> Optional[tuple]:
+               current_heading: float, current_pos: tuple,
+               rotate_safe: bool = True, rear_verified: bool = True) -> Optional[tuple]:
         """
         Update recovery behavior.
         
@@ -126,7 +132,7 @@ class RecoveryBehavior:
         if self.state == RecoveryState.IDLE:
             return None
             
-        elapsed = time.time() - self.state_start_time
+        elapsed = self.clock() - self.state_start_time
         
         # State machine
         if self.state == RecoveryState.WAIT:
@@ -136,7 +142,14 @@ class RecoveryBehavior:
                 self._enter_state(RecoveryState.IDLE)
                 return None
             elif elapsed > self.config.wait_timeout:
-                # Timeout, try rotating
+                # Timeout, try rotating (only if the swept circle is clear)
+                if not rotate_safe:
+                    if rear_verified and rear_clearance > self.config.min_rear_clearance:
+                        self._enter_state(RecoveryState.BACKUP)
+                        self.backup_start_pos = current_pos
+                    else:
+                        self._enter_state(RecoveryState.REPLAN)
+                    return (0.0, 0.0)
                 self._enter_state(RecoveryState.ROTATE)
                 self.rotate_start_heading = current_heading
                 # Alternate rotation direction on retries
@@ -151,9 +164,11 @@ class RecoveryBehavior:
                 # Found clearance, request replan
                 self._enter_state(RecoveryState.REPLAN)
                 return None
-            elif angle_rotated >= self.config.rotate_angle or elapsed > self.config.rotate_timeout:
-                # Rotated enough or timeout, try backing up
-                if rear_clearance > self.config.min_rear_clearance:
+            elif (angle_rotated >= self.config.rotate_angle or elapsed > self.config.rotate_timeout
+                  or not rotate_safe):
+                # Rotated enough, timeout, or rotating became unsafe: back up
+                # ONLY when the rear is verified clear (never blind reversing)
+                if rear_verified and rear_clearance > self.config.min_rear_clearance:
                     self._enter_state(RecoveryState.BACKUP)
                     self.backup_start_pos = current_pos
                 else:
@@ -171,8 +186,8 @@ class RecoveryBehavior:
             dy = current_pos[1] - self.backup_start_pos[1]
             distance_backed = math.sqrt(dx*dx + dy*dy)
             
-            if rear_clearance < self.config.min_rear_clearance:
-                # Rear blocked during backup, abort to replan
+            if not rear_verified or rear_clearance < self.config.min_rear_clearance:
+                # Rear blocked (or no longer verified) during backup, abort to replan
                 self._enter_state(RecoveryState.REPLAN)
                 return None
             elif distance_backed >= self.config.backup_distance or elapsed > self.config.backup_timeout:
@@ -204,7 +219,7 @@ class RecoveryBehavior:
     def _enter_state(self, new_state: RecoveryState):
         """Transition to a new state."""
         self.state = new_state
-        self.state_start_time = time.time()
+        self.state_start_time = self.clock()
         
     def _angle_diff(self, a: float, b: float) -> float:
         """Compute signed angle difference a - b, wrapped to [-pi, pi]."""

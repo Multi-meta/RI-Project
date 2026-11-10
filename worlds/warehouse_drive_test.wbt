@@ -14,9 +14,15 @@ WorldInfo {
   ]
 }
 DEF VIEWPOINT Viewpoint { orientation -0.3483 0.5091 0.7871 1.4309 position -2.5000 -7.0000 8.5000 }
-Background { skyColor [ 0.75 0.8 0.85 ] }
+DEF BACKGROUND Background { skyColor [ 0.75 0.8 0.85 ] luminosity 1 }
+DEF SMOKE Fog { color 0.62 0.62 0.62 fogType "EXPONENTIAL2" visibilityRange 0 }
 DEF DIRLIGHT_1 DirectionalLight { direction 0.3 -0.4 -1 intensity 0.8 ambientIntensity 0.5 castShadows FALSE }
 DEF DIRLIGHT_2 DirectionalLight { direction -0.3 0.4 -1 intensity 0.8 ambientIntensity 0.5 castShadows FALSE }
+DEF FLOODLIGHT PointLight { attenuation 0 0 1 intensity 40 location 0.0 0.0 2.08 on FALSE castShadows FALSE }
+Pose { translation 0.0 0.0 2.2 children [
+  Shape { appearance Appearance { material Material { diffuseColor 0.2 0.2 0.22 } } geometry Box { size 0.36 0.36 0.12 } }
+  Pose { translation 0 0 -0.065 children [ Shape { appearance Appearance { material DEF FLOODLAMP Material { diffuseColor 0.3 0.3 0.3 emissiveColor 0 0 0 } } geometry Box { size 0.3 0.3 0.01 } } ] }
+] }
 
 DEF FLOOR Solid {
   translation 0 0 -0.025
@@ -423,35 +429,37 @@ DEF CART_1 Solid {
   ]
   name "cart_1"
   boundingObject Box { size 0.45 0.35 0.3 }
-  physics Physics { density -1 mass 4.0 }
 }
 
 DEF CART_2 Solid {
-  translation 0.8 -2.4 0.15
+  translation 0.72 -2.4 0.15
   children [
     Shape { appearance Appearance { material Material { diffuseColor 0.9 0.45 0.1 } } geometry Box { size 0.4 0.4 0.3 } }
   ]
   name "cart_2"
   boundingObject Box { size 0.4 0.4 0.3 }
-  physics Physics { density -1 mass 4.0 }
 }
 
-DEF FAST_SPHERE Solid {
-  translation -1.5 -1.2 0.22
-  children [ Shape { appearance Appearance { material Material { diffuseColor 0.45 0.45 0.5 } } geometry Sphere { radius 0.22 subdivision 4 } } ]
-  name "fast_sphere"
-  boundingObject Sphere { radius 0.22 subdivision 4 }
-  physics Physics { density -1 mass 3.0 }
-}
-
-DEF FAST_CART Solid {
-  translation 1.6 1.2 0.15
+DEF DECOY_BOT Solid {
+  translation -1.5 -1.2 0
+  rotation 0 0 1 1.5708
   children [
-    Shape { appearance Appearance { material Material { diffuseColor 0.45 0.28 0.1 } } geometry Box { size 0.4 0.35 0.3 } }
+    Pose { translation 0 0 0.100 children [ Shape { appearance Appearance { material Material { diffuseColor 0.98 0.76 0.05 } } geometry Box { size 0.3 0.2 0.14 } } ] }
+    Pose { translation 0.154 0 0.060 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.012 0.210 0.035 } } ] }
+    Pose { translation -0.154 0 0.060 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.012 0.210 0.035 } } ] }
+    Pose { translation 0 0 0.173 children [ Shape { appearance Appearance { material Material { diffuseColor 0.18 0.18 0.18 } } geometry Box { size 0.240 0.150 0.006 } } ] }
+    Pose { translation 0.03 0 0.194 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Cylinder { radius 0.04 height 0.036 subdivision 20 } } ] }
+    Pose { translation 0.03 0 0.178 children [ Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Cylinder { radius 0.043 height 0.006 subdivision 20 } } ] }
+    Pose { translation 0.152 0 0.130 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Box { size 0.008 0.09 0.026 } } ] }
+    Pose { translation -0.100 0 0.195 children [ Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Cylinder { radius 0.007 height 0.05 subdivision 8 } } ] }
+    Pose { translation -0.100 0 0.235 children [ Shape { appearance Appearance { material DEF DECOY_BOT_BEACON Material { diffuseColor 1 0.55 0 emissiveColor 0.45 0.25 0 } } geometry Cylinder { radius 0.018 height 0.03 subdivision 16 } } ] }
+    Pose { translation 0.110 0 0.02 children [ Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Sphere { radius 0.02 subdivision 2 } } ] }
+    Pose { translation -0.110 0 0.02 children [ Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Sphere { radius 0.02 subdivision 2 } } ] }
+    DEF DECOY_BOT_WHEEL_L Pose { translation 0 0.115 0.05 rotation 0 1 0 0 children [ Pose { translation 0 0 0 rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Cylinder { radius 0.05 height 0.03 subdivision 24 } } ] } Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Box { size 0.070 0.034 0.012 } } Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Box { size 0.012 0.034 0.070 } } ] }
+    DEF DECOY_BOT_WHEEL_R Pose { translation 0 -0.115 0.05 rotation 0 1 0 0 children [ Pose { translation 0 0 0 rotation 1 0 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.05 0.05 0.05 } } geometry Cylinder { radius 0.05 height 0.03 subdivision 24 } } ] } Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Box { size 0.070 0.034 0.012 } } Shape { appearance Appearance { material Material { diffuseColor 0.55 0.55 0.58 } } geometry Box { size 0.012 0.034 0.070 } } ] }
   ]
-  name "fast_cart"
-  boundingObject Box { size 0.4 0.35 0.3 }
-  physics Physics { density -1 mass 4.0 }
+  name "decoy_bot"
+  boundingObject Group { children [ Pose { translation 0 0 0.100 children [ Box { size 0.3 0.2 0.14 } ] } Pose { translation 0 0 0.05 rotation 1 0 0 1.5708 children [ Cylinder { radius 0.05 height 0.270 } ] } ] }
 }
 
 DEF INTELLIBOT Robot {
@@ -550,7 +558,7 @@ DEF INTELLIBOT Robot {
         anchor 0 0.12 0.05
       }
       device [
-        RotationalMotor { name "left_motor" maxVelocity 12.0 maxTorque 5.0 }
+        RotationalMotor { name "left_motor" maxVelocity 20.0 maxTorque 5.0 }
         PositionSensor { name "left_encoder" }
       ]
       endPoint Solid {
@@ -567,7 +575,7 @@ DEF INTELLIBOT Robot {
         anchor 0 -0.12 0.05
       }
       device [
-        RotationalMotor { name "right_motor" maxVelocity 12.0 maxTorque 5.0 }
+        RotationalMotor { name "right_motor" maxVelocity 20.0 maxTorque 5.0 }
         PositionSensor { name "right_encoder" }
       ]
       endPoint Solid {
@@ -577,6 +585,63 @@ DEF INTELLIBOT Robot {
         boundingObject Sphere { radius 0.05 subdivision 3 }
         physics Physics { density -1 mass 0.1 }
       }
+    }
+    DistanceSensor {
+      translation 0.18 0.055 0.125
+      rotation 0 0 1 0.1745
+      children [ Pose { translation -0.006 0 0 rotation 0 1 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.12 0.12 0.14 } } geometry Cylinder { radius 0.012 height 0.012 subdivision 12 } } ] } ]
+      name "us_fl"
+      type "sonar"
+      lookupTable [ 0.02 0.02 0.01, 2.5 2.5 0.01 ]
+      numberOfRays 7
+      aperture 0.52
+    }
+    DistanceSensor {
+      translation 0.18 -0.055 0.125
+      rotation 0 0 1 -0.1745
+      children [ Pose { translation -0.006 0 0 rotation 0 1 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.12 0.12 0.14 } } geometry Cylinder { radius 0.012 height 0.012 subdivision 12 } } ] } ]
+      name "us_fr"
+      type "sonar"
+      lookupTable [ 0.02 0.02 0.01, 2.5 2.5 0.01 ]
+      numberOfRays 7
+      aperture 0.52
+    }
+    DistanceSensor {
+      translation 0.04 0.115 0.125
+      rotation 0 0 1 1.5708
+      children [ Pose { translation -0.006 0 0 rotation 0 1 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.12 0.12 0.14 } } geometry Cylinder { radius 0.012 height 0.012 subdivision 12 } } ] } ]
+      name "us_l"
+      type "sonar"
+      lookupTable [ 0.02 0.02 0.01, 2.5 2.5 0.01 ]
+      numberOfRays 7
+      aperture 0.52
+    }
+    DistanceSensor {
+      translation 0.04 -0.115 0.125
+      rotation 0 0 1 -1.5708
+      children [ Pose { translation -0.006 0 0 rotation 0 1 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.12 0.12 0.14 } } geometry Cylinder { radius 0.012 height 0.012 subdivision 12 } } ] } ]
+      name "us_r"
+      type "sonar"
+      lookupTable [ 0.02 0.02 0.01, 2.5 2.5 0.01 ]
+      numberOfRays 7
+      aperture 0.52
+    }
+    DistanceSensor {
+      translation -0.18 0.055 0.125
+      rotation 0 0 1 3.1416
+      children [ Pose { translation -0.006 0 0 rotation 0 1 0 1.5708 children [ Shape { appearance Appearance { material Material { diffuseColor 0.12 0.12 0.14 } } geometry Cylinder { radius 0.012 height 0.012 subdivision 12 } } ] } ]
+      name "us_b"
+      type "sonar"
+      lookupTable [ 0.02 0.02 0.01, 2.5 2.5 0.01 ]
+      numberOfRays 7
+      aperture 0.52
+    }
+    LightSensor {
+      translation 0.07 0.0 0.135
+      rotation 0 1 0 -1.5708
+      children [ Shape { appearance Appearance { material Material { diffuseColor 0.9 0.9 0.95 } } geometry Box { size 0.004 0.018 0.018 } } ]
+      name "light_sensor"
+      lookupTable [ 0 0 0, 4 1023 0.005 ]
     }
     Pose { translation -0.115 0 0.19 children [ Shape { appearance Appearance { material Material { diffuseColor 0.7 0.72 0.75 } } geometry Box { size 0.025 0.025 0.12 } } ] }
     HingeJoint {

@@ -386,7 +386,7 @@ DEF ROBOT_1 Robot {
         anchor 0 0.165 0.04
       }
       device [
-        RotationalMotor { name "left_motor" maxVelocity 12.0 maxTorque 5.0 }
+        RotationalMotor { name "left_motor" maxVelocity 20.0 maxTorque 5.0 }
         PositionSensor { name "left_encoder" }
       ]
       endPoint Solid {
@@ -403,7 +403,7 @@ DEF ROBOT_1 Robot {
         anchor 0 -0.165 0.04
       }
       device [
-        RotationalMotor { name "right_motor" maxVelocity 12.0 maxTorque 5.0 }
+        RotationalMotor { name "right_motor" maxVelocity 20.0 maxTorque 5.0 }
         PositionSensor { name "right_encoder" }
       ]
       endPoint Solid {
@@ -644,7 +644,7 @@ DEF ROBOT_2 Robot {
         anchor 0 0.165 0.04
       }
       device [
-        RotationalMotor { name "left_motor" maxVelocity 12.0 maxTorque 5.0 }
+        RotationalMotor { name "left_motor" maxVelocity 20.0 maxTorque 5.0 }
         PositionSensor { name "left_encoder" }
       ]
       endPoint Solid {
@@ -661,7 +661,7 @@ DEF ROBOT_2 Robot {
         anchor 0 -0.165 0.04
       }
       device [
-        RotationalMotor { name "right_motor" maxVelocity 12.0 maxTorque 5.0 }
+        RotationalMotor { name "right_motor" maxVelocity 20.0 maxTorque 5.0 }
         PositionSensor { name "right_encoder" }
       ]
       endPoint Solid {

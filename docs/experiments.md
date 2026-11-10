@@ -68,3 +68,36 @@ Observed so far (offline kinematic simulator only, not Webots):
    repeatable; each run writes into its own `logs/final/<scenario>/run_XX/`.
 4. Offline kinematic results are labelled as such and never mixed with
    Webots results in one table.
+
+---
+
+# Navigation / localisation / safety ablations (branch `fix/ankit-ekf-navigation-manipulation`)
+
+Offline numbers come from `python tools/run_experiments.py`, which runs the
+mission on the **kinematic** simulator and writes every value it reports to
+`docs/evidence/experiments/ablation_results.{md,json}` (nothing typed by hand).
+Webots numbers: **none yet**.
+
+| ID | Ablation | Offline (kinematic) | Webots scenario (`tools/run_scenario.py`) | Metrics |
+|---|---|---|---|---|
+| N1 | odometry-only vs GPS-only vs EKF | `run_mission(localization=odom/gps/ekf)`, GPS σ 5 cm, IMU σ 1°, 2 % encoder scale error, 3 seeds + one 10 s GPS dropout | `A_odom_only_P3_B`, `A_gps_only_P3_B` vs `S1_store_P3_B` | pose RMSE / max vs ground truth, mean NEES, mission result (`mission_report.json → localization_vs_ground_truth`) |
+| N2 | fixed speed (0.30 m/s) vs speed governor (0.45 m/s cruise) | 3 missions | `A_fixed_speed_P3_B` vs `S1_store_P3_B` | mission + navigation time, min clearance, contacts, emergency stops |
+| N3 | safety-stop-only replanning vs continuous dynamic layer | static box on the route, crossing cart × 3 phases | `A_static_replan_P3_B` vs `S1_store_P3_B` (carts `CART_1/2`, `FAST_*` in the world) | result, time, contacts, min clearance, replans by reason |
+| N4 | displacement mid-route: EKF without vs with relocalisation | 3 seeds | manual: drag the robot in DELIVER (README) | pose RMSE, relocalisations, replans, result |
+
+Offline results (2026-11-10, 107 s run) — summary; full tables in
+`docs/evidence/experiments/ablation_results.md`:
+
+* N1: EKF RMSE 0.009–0.012 m, 4/4 DONE (incl. the GPS dropout); GPS-only 0.070 m,
+  0/4 DONE (docking SETTLE never sees a still pose — raw GPS jitter); odometry-only
+  0.22–0.26 m, 2/4 DONE. Mean NEES (EKF) 1.1–1.6.
+* N2: navigation time 26.6→22.6 s, 29.1→24.8 s, 28.5→24.5 s (−14…−15 %); mission
+  time −2…−5 %; min clearance unchanged; 0 contacts; 6/6 parcels in slot.
+* N3: static box — 96.4 → 85.3 s, min clearance 0.104 → 0.178 m, early detour
+  instead of an 8 s stop. Crossing cart — contacts 3 → 1 over three phases; the
+  full stack waits at the crossing (phase 0: 92.0 → 104.7 s).
+* N4: relocalisation 3/3 DONE, RMSE 0.045–0.046 m; without it 3/3 DONE in the
+  kinematic model but RMSE 0.13–0.18 m and up to +40 s.
+
+Rules from 18.5 apply: offline and Webots results are never mixed in one table;
+report k/N.

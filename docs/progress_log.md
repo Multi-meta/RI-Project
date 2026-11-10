@@ -276,3 +276,26 @@ World opens with 0 warnings; `manip_check` modes cameras / gripper / joints /
 pick; S1 missions (>= 8/10 target, record the real rate); camera evidence in
 docs/evidence/cameras/; parcel jitter while latched (see webots_findings.md).
 Exact commands: README "Arm, shelves and cameras".
+
+
+## 2026-11-10 — fix/ankit-ekf-navigation-manipulation (Ankit)
+
+- Manipulation freeze: window gripper stall + contact completion, loaded settle
+  only when stopped, motion-based step deadlines (was 60 s), exceptions → FAILED,
+  controller-level exception guard, start-up encoder wait, per-joint fault
+  diagnosis with torque feedback, single arm update per step, exact (0,0) base
+  in arm states. 11 regression tests.
+- EKF integrated (`localization.py`): signed odometry increments, valid-sample
+  initialisation, motion-dependent Q, sensor health → R inflation, kidnapped
+  robot relocalisation, dead reckoning on dropout, ekf/odom/gps modes; RMSE/NEES
+  vs Supervisor ground truth in the report (evaluation only). 15 tests.
+- Dynamic replanning (`dynamic_map.py`, `decision_maker._nav_monitor`): evidence
+  layer with observed-free clearing, corridor check, moving-obstacle yield and
+  lane crossing, deviation / stuck / collision / pose-jump triggers, cooldown,
+  safe start (no teleporting), bounded recovery with verified-rear backup;
+  follower can turn away from a wall; route-length slowdown.
+- Safety (`safety.py`): stopping-distance speed governor, corridor clearance,
+  emergency stop, health / carrying / approach caps; bumper rising-edge events.
+- Dashboard: EKF pose, dynamic cells, GT marker, health, replans, speed cap,
+  shelf occupancy. Ablation runner `tools/run_experiments.py` + Webots `A_*`
+  scenarios. 303 tests pass. Webots verification pending (report §10).

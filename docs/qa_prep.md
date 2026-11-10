@@ -290,3 +290,43 @@ control), B (perception), C (planning & decisions).
     ODE contacts, real docking accuracy, success rate over ≥ 10 Webots runs,
     camera evidence images. The offline kinematic simulator proves the logic
     and geometry, not the physics.
+
+
+## EKF navigation, dynamic replanning, safety (Ankit, fix/ankit-ekf-navigation-manipulation)
+
+1. **Why did the robot replan from its old position after being pushed?**
+   The wheels did not see the push, so the EKF prediction stayed at the old
+   place; every later GPS fix failed the χ² gate and was rejected forever.
+   Now 0.5 s of mutually consistent rejected fixes ⇒ relocalise on GPS+IMU and
+   trigger a replan from the new pose. Single outliers are still rejected.
+
+2. **What was wrong with the EKF prediction?** `ds = hypot(Δx, Δy)` is never
+   negative (reversing predicted forward motion) and Δθ was not wrapped. Now the
+   signed arc length and Δθ come straight from the encoder increments.
+
+3. **How do you tell static from dynamic obstacles?** A LiDAR hit on a cell of
+   the known map (± one cell for pose error) is the static map; other hits add
+   evidence in the dynamic layer. A cell that was occupied and is then seen
+   free was vacated ⇒ the obstacle moves ⇒ yield instead of detouring.
+
+4. **How do you avoid ghost obstacles but still remember a blocked route?**
+   Only *observed-free* cells are cleared (a ray passes through them);
+   unobserved cells keep their evidence until a 30 s TTL.
+
+5. **Stopping distance?** `d = v²/(2a) + v·t_react + margin`
+   (0.8 m/s², 0.1 s, 0.1 m ⇒ 0.27 m at 0.45 m/s). The governor inverts it:
+   the speed is the largest one whose stopping distance fits the measured
+   clearance in the swept corridor.
+
+6. **Why scale v and w together?** Keeps the curvature of the follower's arc,
+   so slowing down never changes the path.
+
+7. **When may the robot reverse in recovery?** Only if the rear LiDAR sector
+   has valid (non-NaN) data and its corridor clearance exceeds the backup
+   distance + margin. Missing data ≠ free.
+
+8. **What did you do about the arm freeze without logs?** Removed every way
+   the sequence can hang or crash: window-based gripper stall test, settle under
+   load only when stopped, motion-based step deadlines, exception → FAILED
+   (and a controller-level guard), start-up encoder wait; plus a per-joint
+   diagnosis (target/measured/torque) on every fault for the next occurrence.

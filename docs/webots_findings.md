@@ -196,3 +196,21 @@ read at the mirrored bearing. To verify in Phase 4.2.
 the parcel jitter. If it does: lower `GRIPPER_GRIP_FORCE`, raise pad
 friction (`ContactProperties gripper_pad/parcel`), or let the fingers open by
 1 mm after `LATCH` — record the setting that worked here.
+
+
+## EKF navigation / replanning / governor (2026-11-10, branch fix/ankit-ekf-navigation-manipulation)
+
+Found by code reading + offline reproduction (NOT yet observed in Webots logs):
+
+* Sensors are NaN before the first sampling period — the old EKF was seeded
+  from `perception.get_pose()` before the first step (fallback constant).
+  Now initialised from the first valid GPS + IMU sample.
+* The Webots GPS has no noise configured, so with GPS updates every step the
+  EKF tracks it closely; the EKF matters for GPS dropouts and displacements.
+* A displacement the wheels cannot see (collision push, manual drag in the
+  GUI) previously froze the EKF pose (every GPS fix gated out).
+* Bumper `TouchSensor` values were counted every step while pressed — now a
+  rising edge = one collision event.
+* To verify in Webots: braking distance from 0.45 m/s (sets
+  `SAFETY_BRAKE_DECEL`), LiDAR NaN behaviour when occluded, motor torque
+  feedback values on the arm joints (`enableTorqueFeedback`).

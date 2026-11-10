@@ -241,6 +241,46 @@ getImage() BGRA ──► camera_pipeline.bgra_to_bgr (drop alpha; no swap, no f
                                                     rear  phi = pi - atan(u'/f)
 ```
 
+## Navigation stack v2: EKF pose, dynamic layer, replanning, speed governor
+
+```
+encoders ─► Odometry (signed ds, dθ) ─┐
+GPS, IMU ─────────────────────────────┴─► LocalizationManager (EKF + health + kidnap recovery)
+                                                │ pose, status, pose_jump
+LiDAR ─► DynamicObstacleMap (evidence, observed-free clearing, moving-cell memory)
+                                                ▼
+                 DecisionMaker._nav_monitor ── triggers ──► A* from CURRENT pose (safe start)
+                         │                                   └─► RecoveryBehavior (sim clock)
+                         ▼
+               WaypointFollower ─► SpeedGovernor (v_cap = min(cruise, clearance, health, zone))
+                                          ─► inverse_kinematics ─► wheels
+```
+
+### localization.py — [Ankit]
+EKF is the navigation pose. Initialised from the first valid GPS+IMU sample,
+predicted from signed encoder increments with motion-dependent Q, GPS/IMU trust
+→ R inflation, χ² gating; consistent rejected GPS for 0.5 s ⇒ relocalise and
+report the jump (robot was displaced). Modes ekf | odom | gps for ablations.
+
+### dynamic_map.py — [Ankit]
+Writes `OccupancyGrid.dynamic`. Hit = +1 evidence, ray passing through = −1,
+occupied at 2; hits on the static map ignored; unobserved evidence kept (memory
+of a blocked route) until 30 s; vacated cells remembered 2–6 s to recognise
+moving obstacles.
+
+### safety.py — [Ankit]
+`d_stop(v) = v²/(2a) + v·t + margin`; swept-corridor clearance in the direction
+of travel; `SpeedGovernor` scales (v, w) together (curvature kept), ramps,
+emergency-stops at the margin, caps for carrying / approach / degraded sensors;
+docking runs in DOCK mode.
+
+### decision_maker.py additions — [Ankit]
+`_nav_monitor` (route-corridor check, moving-obstacle yield, lane crossing,
+deviation, stuck, collision, pose jump, cooldown), `_replan` (always from the
+current pose to the same goal, fresh follower), `_recovery_step`
+(wait → rotate if safe → back up only with a verified rear → replan, bounded),
+exact (0, 0) in every arm state, governor applied to every command.
+
 ## Tools (offline, no Webots needed)
 
 | Tool | Output |

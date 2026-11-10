@@ -220,6 +220,27 @@ python tools/offline_mission_sim.py --package P3 --zone B   # kinematic, NOT phy
 python tools/plot_arm_workspace.py                           # design figure + reach table
 ```
 
+## Navigation, localisation and safety (EKF + dynamic replanning + speed governor)
+
+The robot now drives with the EKF pose (`localization.py`: signed encoder
+increments, GPS + IMU with health-scaled R, kidnapped-robot relocalisation),
+fuses the LiDAR continuously into the dynamic layer of the grid
+(`dynamic_map.py`), replans with A* **from its current pose** when the route is
+blocked, it is displaced, it deviates, it is stuck or it bumps into something
+(`decision_maker.py`), and every command passes the speed governor
+(`safety.py`, cruise 0.45 m/s, stopping-distance limited). Details, root
+causes and offline numbers: `docs/ankit_implementation_report.md`.
+
+```bash
+python -m pytest tests/ -q                         # 303 tests, no Webots
+python tools/offline_mission_sim.py                # one kinematic mission (full stack)
+python tools/run_experiments.py                    # ablation matrix -> docs/evidence/experiments/
+python tools/run_scenario.py --list                # Webots scenarios incl. A_* ablations
+```
+
+Ablation switches (config or environment): `INTELLIBOT_LOC_MODE=ekf|odom|gps`,
+`INTELLIBOT_GOVERNOR=0|1`, `INTELLIBOT_DYN_REPLAN=0|1`.
+
 ## Known limitations (honest list)
 
 - Measured in Webots so far: world/config consistency, rest stability,
@@ -232,8 +253,8 @@ python tools/plot_arm_workspace.py                           # design figure + r
 - First full mission run (2026-10-06) reached DONE in 61.7 s sim time, but
   the package position estimate was ~0.6 m short (LiDAR ray order still
   unverified, Phase 4.2). Pickup is still a placeholder.
-- Localization uses GPS+IMU (idealized); wheel odometry is implemented and
-  validated against it. A real robot needs odometry+LiDAR localization/SLAM.
+- Localization = EKF over wheel odometry + GPS + IMU (the Webots GPS is
+  noise-free, so the EKF mostly tracks it there); no LiDAR map matching / SLAM.
 - Pickup was a placeholder in the mid-eval. The final-eval arm/latch pickup
   is implemented and tested offline only (kinematic simulator + unit tests);
   physical behaviour in Webots (grip stability, docking accuracy, success
@@ -242,5 +263,7 @@ python tools/plot_arm_workspace.py                           # design figure + r
 - The arm post creates a ~13° LiDAR blind sector straight behind the robot
   (self-filtered); reversing relies on the remaining rear rays and the rear
   bumper.
-- Dynamic re-planning hooks exist and are unit-tested but not wired live
-  (final-eval "wow" feature).
+- Dynamic replanning, the EKF navigation pose and the speed governor are
+  wired live (branch `fix/ankit-ekf-navigation-manipulation`) but verified
+  **offline only** so far — see `docs/ankit_implementation_report.md` §10 for
+  the Webots checks still to do.

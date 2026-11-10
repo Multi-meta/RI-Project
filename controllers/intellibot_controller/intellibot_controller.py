@@ -83,6 +83,13 @@ def apply_env_overrides():
         config.DYNAMIC_REPLANNING_ENABLED = dyn == "1"
 
 
+def fast_sphere_vy(sim_time):
+    """y velocity of the FAST_SPHERE obstacle at sim_time (m/s)."""
+    speed = config.FAST_SPHERE_SPEED
+    half = config.FAST_SPHERE_HALF_PERIOD
+    return speed if int(sim_time / half) % 2 == 0 else -speed
+
+
 def planner_factory(grid):
     """A* planner over the inflated known map (+ dynamic layer)."""
     def plan(start_xy, goal_xy):
@@ -411,11 +418,11 @@ def main():
             c2_vy = 0.3 if (int(sim_time / 16.0) % 2 == 0) else -0.3
             cart2_node.setVelocity([0.0, c2_vy, 0.0, 0.0, 0.0, 0.0])
 
-        # Drive fast-moving obstacles (0.75 m/s sphere, 0.70 m/s cart) across main transit path
+        # Drive the fast sphere across the main transit path: back and forth
+        # along y, FAST_SPHERE_SPEED for FAST_SPHERE_HALF_PERIOD per direction
+        # (speed x half period = the same 2.625 m sweep as before)
         if fast_sphere_node is not None:
-            s_speed = getattr(config, "FAST_SPHERE_SPEED", 0.75)
-            s_vy = s_speed if (int(sim_time / 3.5) % 2 == 0) else -s_speed
-            fast_sphere_node.setVelocity([0.0, s_vy, 0.0, 0.0, 0.0, 0.0])
+            fast_sphere_node.setVelocity([0.0, fast_sphere_vy(sim_time), 0.0, 0.0, 0.0, 0.0])
         if fast_cart_node is not None:
             c_speed = getattr(config, "FAST_CART_SPEED", 0.70)
             c_vy = c_speed if (int(sim_time / 4.0) % 2 == 0) else -c_speed

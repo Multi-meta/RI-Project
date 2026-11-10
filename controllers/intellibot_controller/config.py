@@ -644,7 +644,8 @@ MOVING_OBSTACLE_SPEEDS = {
 }
 FAST_SPHERE_DEF = "FAST_SPHERE"
 FAST_CART_DEF = "FAST_CART"
-FAST_SPHERE_SPEED = 0.75
+FAST_SPHERE_SPEED = 0.525                         # m/s (was 0.75: -30 %)
+FAST_SPHERE_HALF_PERIOD = 5.0                     # s per direction (was 3.5): same 2.625 m sweep
 FAST_CART_SPEED = 0.70
 
 CART_DEFS = {

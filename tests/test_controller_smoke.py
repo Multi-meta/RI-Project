@@ -333,3 +333,22 @@ def test_env_overrides_select_ablation_flags(monkeypatch):
     assert config.LOCALIZATION_MODE == "odom"
     assert config.SPEED_GOVERNOR_ENABLED is False
     assert config.DYNAMIC_REPLANNING_ENABLED is False
+
+
+def test_fast_sphere_is_30_percent_slower_with_the_same_sweep(monkeypatch):
+    monkeypatch.syspath_prepend(os.path.join(ROOT, "controllers", "intellibot_controller"))
+    mod = types.ModuleType("controller")
+    mod.Supervisor = FakeSupervisor
+    mod.Robot = FakeSupervisor
+    monkeypatch.setitem(sys.modules, "controller", mod)
+    ic = importlib.import_module("intellibot_controller")
+    assert config.FAST_SPHERE_SPEED == pytest.approx(0.75 * 0.70)
+    assert config.FAST_SPHERE_SPEED * config.FAST_SPHERE_HALF_PERIOD == pytest.approx(0.75 * 3.5)
+    dt, y, ys = 0.016, 0.0, []
+    for k in range(int(4 * config.FAST_SPHERE_HALF_PERIOD / dt)):
+        vy = ic.fast_sphere_vy(k * dt)
+        assert abs(vy) == pytest.approx(config.FAST_SPHERE_SPEED)
+        y += vy * dt
+        ys.append(y)
+    assert max(ys) - min(ys) == pytest.approx(0.75 * 3.5, abs=0.02)   # same boundaries
+    assert abs(ys[-1]) < 0.02                                         # periodic, returns

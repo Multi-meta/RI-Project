@@ -249,3 +249,87 @@ def test_manip_check_all_modes_execute_without_errors(stub_webots, monkeypatch, 
     chk.run_pick()                       # fake LiDAR sees nothing -> docking fails cleanly
     assert "Overall:" in (tmp_path / "manip" / "pick_check.md").read_text()
     chk.log.close()
+
+
+def test_controller_wires_ekf_governor_and_dynamic_map(stub_webots, capsys, monkeypatch, tmp_path):
+    """The navigation pose comes from the EKF (initialised from the first
+    VALID GPS + IMU sample), the dashboard/logs carry the new telemetry, and
+    no exception escapes the control loop."""
+    import csv
+    import json
+    monkeypatch.setenv("INTELLIBOT_LOG_DIR", str(tmp_path))
+    monkeypatch.syspath_prepend(os.path.join(ROOT, "controllers", "intellibot_controller"))
+    ic = importlib.import_module("intellibot_controller")
+    FakeSupervisor.max_steps = 300
+    ic.main()
+    out = capsys.readouterr().out
+    assert "[LOC]" in out and "initialised (ekf)" in out
+    assert "dynamic replanning=ON" in out and "speed governor=ON" in out
+    assert "CONTROLLER EXCEPTION" not in out
+    rows = list(csv.DictReader(open(tmp_path / "run.csv")))
+    live = [r for r in rows if r["loc_status"]]       # the last row is finish()'s
+    assert live and live[-1]["loc_status"] in ("OK", "DEGRADED")
+    assert live[-1]["x_est"] != ""
+    report = json.load(open(tmp_path / "mission_report.json"))
+    assert report["localization"]["mode"] == "ekf"
+    assert "safety" in report and "collisions_bumper" in report
+
+
+def test_controller_survives_an_fsm_exception(stub_webots, capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("INTELLIBOT_LOG_DIR", str(tmp_path))
+    monkeypatch.syspath_prepend(os.path.join(ROOT, "controllers", "intellibot_controller"))
+    ic = importlib.import_module("intellibot_controller")
+    import decision_maker
+
+    def boom(self, *a, **k):
+        raise RuntimeError("synthetic failure")
+    monkeypatch.setattr(decision_maker.DecisionMaker, "_do_find_package", boom)
+    FakeSupervisor.max_steps = 200
+    ic.main()                                   # must not raise
+    out = capsys.readouterr().out
+    assert "CONTROLLER EXCEPTION in state FIND_PACKAGE" in out
+    assert "STATE: FIND_PACKAGE -> ERROR" in out
+
+
+def test_dashboard_draws_extended_status():
+    from display_dash import Dashboard
+    from warehouse_grid import build_warehouse_grid
+
+    class FakeDisplay:
+        def __init__(self):
+            self.calls = []
+
+        def getWidth(self):
+            return 256
+
+        def getHeight(self):
+            return 256
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self.calls.append((name, a))
+    d = FakeDisplay()
+    dash = Dashboard(d, build_warehouse_grid())
+    dash.draw((0.0, -0.3, 0.0), "DELIVER", 12.0, [(0, -0.3), (1, -0.3)], (1.0, 1.0),
+              extra={"dyn_points": [(0.5, -0.3)], "gt_pose": (0.01, -0.3, 0.0),
+                     "lines": ["LOC ekf OK", "replans 2"], "warn": False})
+    texts = [a[0] for n, a in d.calls if n == "drawText"]
+    assert "STATE: DELIVER" in texts and "LOC ekf OK" in texts and "replans 2" in texts
+
+
+
+def test_env_overrides_select_ablation_flags(monkeypatch):
+    monkeypatch.syspath_prepend(os.path.join(ROOT, "controllers", "intellibot_controller"))
+    mod = types.ModuleType("controller")
+    mod.Supervisor = FakeSupervisor
+    mod.Robot = FakeSupervisor
+    monkeypatch.setitem(sys.modules, "controller", mod)
+    ic = importlib.import_module("intellibot_controller")
+    for name in ("LOCALIZATION_MODE", "SPEED_GOVERNOR_ENABLED", "DYNAMIC_REPLANNING_ENABLED"):
+        monkeypatch.setattr(config, name, getattr(config, name))
+    monkeypatch.setenv("INTELLIBOT_LOC_MODE", "odom")
+    monkeypatch.setenv("INTELLIBOT_GOVERNOR", "0")
+    monkeypatch.setenv("INTELLIBOT_DYN_REPLAN", "0")
+    ic.apply_env_overrides()
+    assert config.LOCALIZATION_MODE == "odom"
+    assert config.SPEED_GOVERNOR_ENABLED is False
+    assert config.DYNAMIC_REPLANNING_ENABLED is False

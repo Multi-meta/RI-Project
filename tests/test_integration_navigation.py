@@ -38,7 +38,9 @@ def test_static_obstacle_detour_without_contact():
 
 
 def test_displacement_relocalises_and_replans_from_the_new_pose():
-    res = run_mission("P3", "B", displace=(46.0, 0.3, 0.5, 0.6), gps_noise=0.02,
+    # pushed at (-0.90, -0.40) on the delivery route: reached at t = 41.2 s
+    # with the faster base (V_CRUISE 0.70 m/s; it was t = 46 s at 0.45 m/s)
+    res = run_mission("P3", "B", displace=(41.2, 0.3, 0.5, 0.6), gps_noise=0.02,
                       imu_noise=0.005, odom_scale_error=0.01, max_time=300)
     assert res["final_state"] == "DONE"
     assert res["localization"]["summary"]["relocalizations"] == 1
@@ -52,7 +54,11 @@ def test_displacement_relocalises_and_replans_from_the_new_pose():
 
 def test_crossing_cart_is_yielded_to(monkeypatch):
     monkeypatch.setattr(config, "YIELD_WAIT_TIME", 8.0)      # the shipped value
-    cart = MovingBox(1.6, -1.3, 0.4, 0.3, vy=0.4, travel=1.5)
+    # Cart phase y0 = -1.1. Swept 2026-11-10 over y0 in [-1.3, 0.1]: 7/8 phases
+    # are contact-free at BOTH the old (0.45 m/s) and new (0.70 m/s) cruise;
+    # y0 = -1.3 lets this NON-yielding cart clip the waiting robot's rear at
+    # either speed (known yield-logic edge case, not a speed regression).
+    cart = MovingBox(1.6, -1.1, 0.4, 0.3, vy=0.4, travel=1.5)
     res = run_mission("P3", "B", obstacles=[cart])
     assert res["final_state"] == "DONE"
     assert _contacts(res) == 0

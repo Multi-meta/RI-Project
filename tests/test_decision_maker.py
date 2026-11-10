@@ -207,3 +207,28 @@ def test_nan_estimator_resilience():
     v, w = fsm.update(sim.pose(), [2.0]*360, [0.0]*360, [det], 0.0, 0.05)
     # Must not crash, streak must increment
     assert fsm.detection_streak == 1
+
+
+def test_task_for_an_already_delivered_parcel_is_rejected(monkeypatch):
+    """Interactive session: P1 was placed on a rack earlier in the run. Asking
+    for P1 again must NOT send the robot to the empty pickup spot (it used to
+    end in DOCK_PICK PARCEL_FACE_NOT_FOUND_BY_LIDAR -> ERROR); the task is
+    rejected and the FSM asks for the next one."""
+    monkeypatch.setattr(config, "INTERACTIVE_MODE", True)
+    lines = []
+    fsm = DecisionMaker(straight_planner(), fixed_estimator(-3.1, -0.5), log=lines.append)
+    fsm.occupancy.mark("RA-L1-B1", config.TASK_PACKAGE)
+    fsm.state = "IDLE"
+    fsm.update((0.0, -0.3, 0.0), None, None, [], 1.0, 0.016)
+    assert fsm.state == "AWAIT_INPUT"
+    assert any("TASK REJECTED" in m and "RA-L1-B1" in m for m in lines)
+
+
+def test_task_for_an_already_delivered_parcel_fails_cleanly_in_batch(monkeypatch):
+    monkeypatch.setattr(config, "INTERACTIVE_MODE", False)
+    fsm = DecisionMaker(straight_planner(), fixed_estimator(-3.1, -0.5))
+    fsm.occupancy.mark("RB-L1-B1", config.TASK_PACKAGE)
+    fsm.state = "IDLE"
+    fsm.update((0.0, -0.3, 0.0), None, None, [], 1.0, 0.016)
+    assert fsm.state == "ERROR"
+    assert fsm.failure_reason.startswith("TASK_REJECTED")

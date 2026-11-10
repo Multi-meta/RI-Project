@@ -4,6 +4,7 @@ import math
 
 import pytest
 
+import config
 import kinematics as k
 
 
@@ -30,7 +31,7 @@ def test_clamping_preserves_curvature():
     # command far beyond what the motors can deliver
     v, w = 5.0, 2.0                          # curvature = w/v = 0.4
     wl, wr = k.inverse_kinematics(v, w)
-    assert max(abs(wl), abs(wr)) <= 12.0 + 1e-9
+    assert max(abs(wl), abs(wr)) <= config.MAX_WHEEL_SPEED + 1e-9
     v2, w2 = k.forward_kinematics(wl, wr)
     assert w2 / v2 == pytest.approx(w / v, rel=1e-6)   # same curvature
     assert v2 < v                                     # and slower

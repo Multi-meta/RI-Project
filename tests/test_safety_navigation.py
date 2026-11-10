@@ -87,10 +87,10 @@ def test_governor_caps_speed_by_clearance_and_preserves_curvature():
 
 def test_governor_acceleration_and_emergency():
     gov = SpeedGovernor(enabled=True)
-    v, _ = gov.limit(0.45, 0.0, 0.032, None, None)
+    v, _ = gov.limit(1.0, 0.0, 0.032, None, None)          # ask for more than cruise
     assert v == pytest.approx(config.SAFETY_ACCEL * 0.032)
     for _ in range(100):
-        v, _ = gov.limit(0.45, 0.0, 0.032, None, None)
+        v, _ = gov.limit(1.0, 0.0, 0.032, None, None)
     assert v == pytest.approx(config.V_CRUISE)
     close = scan_boxes((0, 0, 0), [(config.ROBOT_FRONT_EXTENT + 0.05, 0.5, -0.1, 0.1)])
     v, w = gov.limit(0.45, 0.3, 0.032, close, ANGLES)
@@ -108,7 +108,7 @@ def test_governor_health_caps():
     assert v == 0.0 and w == 0.0
     gov2 = SpeedGovernor(enabled=True)
     for _ in range(100):
-        v, _ = gov2.limit(0.45, 0.0, 0.032, None, None, carrying=True)
+        v, _ = gov2.limit(1.0, 0.0, 0.032, None, None, carrying=True)
     assert v == pytest.approx(config.V_CARRY)
 
 

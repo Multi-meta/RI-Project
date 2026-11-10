@@ -1,0 +1,281 @@
+[WORLD CHECK] world matches config
+[INTELLIBOT] manipulator ready: shoulder/elbow/wrist + gripper + latch 'gripper_latch'
+[INTELLIBOT] navigation: localization=ekf, dynamic replanning=ON, speed governor=ON (cruise 0.70 m/s)
+[INTELLIBOT] Interactive mode — waiting for task input in console...
+[INTELLIBOT] moving obstacles: CART_1, CART_2, DECOY_BOT
+[FAULT] live hotkeys (click the 3D view): L lights, K smoke, G GPS drop, B GPS bias, I IMU bias, J LiDAR drop, F LiDAR sector, W wheel slip, C camera blind, H floodlight, N foggy night, 0 clear
+[CAMERA] [t=0.02s] front: - -> OK 
+[CAMERA] [t=0.02s] rear: - -> OK 
+[LOC] [t=0.02s] initialised (ekf) at (0.00, -0.30, -0 deg)
+[IMU] [t=0.10s] chassis roll -0.00 deg, pitch -0.16 deg
+[IMU] [t=3.22s] chassis roll -0.00 deg, pitch -0.23 deg
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[ROBOT] Task set: pick green (P2) -> deliver to Zone A (yellow)
+[FSM] [t=83.0s] STATE: AWAIT_INPUT -> IDLE
+[FSM] [t=83.0s] Task: pick P2 (green), deliver to Zone A
+[MANIP] stow: WAIT_SENSORS -> STOW
+[FSM] [t=83.0s] STATE: IDLE -> ARM_STOW
+[MANIP] stow SUCCEEDED
+[FSM] [t=83.2s] STATE: ARM_STOW -> FIND_PACKAGE
+[FSM] [t=83.2s] P2 seen at bearing 174 deg but the LiDAR has no return there (rear blind sector) — turning to range it
+[FSM] [t=83.5s] Other packages mapped as obstacles: {'P3': (-2.78, -0.5)}
+[FSM] [t=83.5s] Package P2 validated at (-3.10, 0.00), lidar range 1.41 m, bearing 167.9 deg
+[FSM] [t=83.5s] STATE: FIND_PACKAGE -> NAVIGATE
+[FSM] [t=83.5s] Package at (-3.10,0.00), approach pose (-2.65,0.00)
+[FSM] [t=83.5s] A* path: 12 waypoints, 2.72 m, 9.6 ms, 947 expansions
+[FSM] [t=83.6s] OBSTACLE DETECTED on the route at (-1.24, -0.11) 1.25 m ahead
+[FSM] [t=83.6s] Current path BLOCKED at waypoint 2
+[FSM] [t=83.6s] REPLANNING from (-0.01, -0.30) to (-2.65, 0.00) [trigger PATH_BLOCKED]...
+[FSM] [t=83.6s] REPLAN SUCCESS: 12 waypoints, length 2.77 m, took 6.7 ms
+[FSM] [t=84.6s] MOVING obstacle on the route at (-1.33, -0.46) — braking and yielding
+[MOVER] DECOY_BOT stops to give way to IntelliBot
+[FSM] [t=87.6s] Moving obstacle clear (3.0 s) — resuming
+[FSM] [t=87.6s] OBSTACLE DETECTED on the route at (-1.33, -0.46) 0.56 m ahead
+[FSM] [t=87.6s] Current path BLOCKED at waypoint 3
+[FSM] [t=87.6s] REPLANNING from (-0.78, -0.38) to (-2.65, 0.00) [trigger PATH_BLOCKED]...
+[FSM] [t=87.6s] REPLAN SUCCESS: 29 waypoints, length 7.73 m, took 12.9 ms
+[FSM] [t=97.6s] OBSTACLE DETECTED on the route at (-3.22, -0.80) 1.50 m ahead
+[FSM] [t=97.6s] Current path BLOCKED at waypoint 19
+[FSM] [t=97.6s] REPLANNING from (-3.11, -2.29) to (-2.65, 0.00) [trigger PATH_BLOCKED]...
+[FSM] [t=97.6s] REPLAN SUCCESS: 12 waypoints, length 2.78 m, took 2.3 ms
+[FSM] [t=102.6s] STATE: NAVIGATE -> DOCK_PICK
+[FSM] [DOCK_PICK] TURN_TO_TARGET -> REFINE
+[FSM] [DOCK_PICK] LiDAR fit #1: parcel centre (-3.103, -0.017) vs estimate (-3.100, 0.000) -> shift 1.7 cm, approach heading -177.2 deg
+[FSM] [DOCK_PICK] REFINE -> TO_PREDOCK
+[FSM] [DOCK_PICK] TO_PREDOCK -> FACE
+[FSM] [DOCK_PICK] FACE -> REFINE
+[FSM] [DOCK_PICK] LiDAR fit #2: parcel centre (-3.101, -0.015) vs estimate (-3.103, -0.017) -> shift 0.3 cm, approach heading -178.7 deg
+[FSM] [DOCK_PICK] REFINE -> TO_PREDOCK
+[FSM] [DOCK_PICK] TO_PREDOCK -> FACE
+[FSM] [DOCK_PICK] FACE -> CREEP
+[CAMERA] [t=114.50s] front: OK -> LOW_CONTRAST grey std 10.9 < 12.0
+[FSM] [DOCK_PICK] CREEP -> SETTLE
+[FSM] [DOCK_PICK] DOCKED: range 0.308 m (lidar), lateral -0.1 cm, heading -0.1 deg
+[FSM] [t=115.2s] Docked at parcel: face range 0.308 m -> grasp TCP (0.408, 0.100) m in the robot frame, attempt 1/2
+[MANIP] pick: OPEN_GRIPPER -> PRE_GRASP -> DESCEND -> ADVANCE -> CHECK_AT_PALM -> CLOSE_GRIPPER -> CHECK_GRASP -> LATCH -> LIFT_CHECK
+[FSM] [t=115.2s] STATE: DOCK_PICK -> ARM_PICK
+[CAMERA] [t=117.06s] front: LOW_CONTRAST -> BLANK grey std 1.65 < 2.0
+[CAMERA] [t=119.28s] front: BLANK -> LOW_CONTRAST grey std 3.0 < 12.0
+[CAMERA] [t=119.55s] front: LOW_CONTRAST -> OK 
+[MANIP] CHECK_AT_PALM: OK palm_range=1.1cm
+[MANIP] CHECK_GRASP: OK width=20.1cm force=(12.0,12.0)N palm=0.8cm latch_present=1
+[MANIP] pick SUCCEEDED
+[MANIP] verify_attachment: SETTLE -> CHECK_ATTACHED -> TRANSIT_UP -> STOW -> CHECK_CARRY
+[FSM] [t=123.1s] STATE: ARM_PICK -> VERIFY_ATTACHMENT
+[MANIP] CHECK_ATTACHED: OK width=20.1cm force=(12.0,12.0)N palm=0.8cm latched=True -> HOLDING
+[MANIP] CHECK_CARRY: OK width=20.1cm force=(12.0,12.0)N palm=0.8cm latched=True -> HOLDING
+[MANIP] verify_attachment SUCCEEDED
+[FSM] [t=131.7s] Package P2 — Distance: 0.41 m — picked up by the arm (attachment verified: width + palm range + force/latch)
+[FSM] [t=131.7s] STATE: VERIFY_ATTACHMENT -> PLAN_DELIVERY
+[FSM] [t=131.7s] Destination: shelf slot RA-L1-B1 (Zone A rack, level 1, bay 1)
+[FSM] [t=131.7s] A* path: 23 waypoints, 6.22 m, 11.2 ms, 1784 expansions
+[FSM] [t=131.7s] STATE: PLAN_DELIVERY -> DELIVER
+[FSM] [t=133.0s] MOVING obstacle on the route at (-1.51, -0.60) — braking and yielding
+[FSM] [t=136.4s] MOVING obstacle approaching the route crossing at (-1.90, -0.44) — braking and yielding
+[FSM] [t=137.3s] Moving obstacle clear (1.0 s) — resuming
+[FSM] [t=138.1s] MOVING obstacle approaching the route crossing at (-1.85, -0.47) — braking and yielding
+[FSM] [t=138.1s] Moving obstacle clear (0.0 s) — resuming
+[FSM] [t=138.2s] MOVING obstacle approaching the route crossing at (-1.85, -0.47) — braking and yielding
+[FSM] [t=138.2s] Moving obstacle clear (0.0 s) — resuming
+[FSM] [t=138.2s] MOVING obstacle approaching the route crossing at (-1.89, -0.49) — braking and yielding
+[FSM] [t=138.3s] Moving obstacle clear (0.1 s) — resuming
+[MOVER] DECOY_BOT stops to give way to IntelliBot
+[FSM] [t=148.7s] STATE: DELIVER -> DOCK_PLACE
+[FSM] [DOCK_PLACE] TO_PREDOCK -> FACE
+[FSM] [DOCK_PLACE] FACE -> CREEP
+[FSM] [DOCK_PLACE] CREEP -> SETTLE
+[FSM] [DOCK_PLACE] DOCKED: range 0.258 m (lidar), lateral -0.1 cm, heading -0.2 deg
+[FSM] [t=162.5s] Docked at rack: front range 0.258 m -> place TCP (0.388, 0.253) m in the robot frame for slot RA-L1-B1
+[MANIP] place: CHECK_HOLDING -> PRE_PLACE -> INSERT -> LOWER -> UNLATCH -> OPEN_GRIPPER
+[MANIP] CHECK_HOLDING: OK width=20.1cm force=(12.0,12.0)N palm=0.8cm latched=True -> HOLDING
+[FSM] [t=162.5s] STATE: DOCK_PLACE -> ARM_PLACE
+[MANIP] place SUCCEEDED
+[MANIP] verify_delivery: SETTLE -> RETRACT -> CHECK_RELEASED -> BACK_OUT -> STOW
+[FSM] [t=169.2s] STATE: ARM_PLACE -> VERIFY_DELIVERY
+[MANIP] CHECK_RELEASED: OK palm_range=6.7cm expected=7.0cm latched=False open=True
+[MANIP] verify_delivery SUCCEEDED
+[FSM] [t=175.6s] Package P2 placed on shelf slot RA-L1-B1 — dropped in Zone A rack, delivery verified by the palm range-finder
+[FSM] [t=175.6s] MISSION REPORT: time=92.6s, path_length=22.23 m, replans=3, collisions={'front': 0, 'rear': 0}
+[FSM] [t=175.6s] MANIPULATION: result=DELIVERED, slot=RA-L1-B1, grasp_attempts=1, place_attempts=1, verified_by_sensors=True, failure=None
+[FSM] [t=175.6s] STATE: VERIFY_DELIVERY -> RETURN_TO_CENTER
+[FSM] [t=175.6s] Returning to center: 14 waypoints, 3.34 m
+[CAMERA] [t=176.19s] front: OK -> LOW_CONTRAST grey std 11.8 < 12.0
+[CAMERA] [t=176.22s] front: LOW_CONTRAST -> OK 
+[MOVER] CART_2 stops to give way to IntelliBot
+[FSM] [t=182.1s] Reached center — awaiting next task.
+[FSM] [t=182.1s] STATE: RETURN_TO_CENTER -> AWAIT_INPUT
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[ROBOT] Task set: pick red (P1) -> deliver to Zone A (yellow)
+[FSM] [t=291.8s] STATE: AWAIT_INPUT -> IDLE
+[FSM] [t=291.8s] Task: pick P1 (red), deliver to Zone A
+[MANIP] stow: WAIT_SENSORS -> STOW
+[FSM] [t=291.8s] STATE: IDLE -> ARM_STOW
+[MANIP] stow SUCCEEDED
+[FSM] [t=292.0s] STATE: ARM_STOW -> FIND_PACKAGE
+[MOVER] CART_2 stops to give way to IntelliBot
+[FSM] [t=294.2s] Other packages mapped as obstacles: {'P2': (3.67, 0.65), 'P3': (-2.99, -0.47)}
+[FSM] [t=294.2s] Package P1 validated at (-3.00, 0.40), lidar range 3.24 m, bearing 27.0 deg
+[FSM] [t=294.2s] STATE: FIND_PACKAGE -> NAVIGATE
+[FSM] [t=294.2s] Package at (-3.00,0.40), approach pose (-2.55,0.40)
+[FSM] [t=294.2s] A* path: 12 waypoints, 2.85 m, 10.2 ms, 1053 expansions
+[FSM] [t=294.6s] OBSTACLE DETECTED on the route at (-1.33, -0.00) 1.48 m ahead
+[FSM] [t=294.6s] Current path BLOCKED at waypoint 2
+[FSM] [t=294.6s] REPLANNING from (0.14, -0.18) to (-2.55, 0.40) [trigger PATH_BLOCKED]...
+[FSM] [t=294.6s] REPLAN SUCCESS: 12 waypoints, length 2.86 m, took 9.0 ms
+[FSM] [t=295.2s] MOVING obstacle on the route at (-1.45, 0.09) — braking and yielding
+[FSM] [t=299.2s] Moving obstacle still on the route after 4 s — replanning around it
+[FSM] [t=299.2s] Current path BLOCKED at waypoint 3
+[FSM] [t=299.2s] REPLANNING from (-0.46, 0.02) to (-2.55, 0.40) [trigger DYNAMIC_BLOCKED]...
+[FSM] [t=299.2s] REPLAN SUCCESS: 11 waypoints, length 2.55 m, took 4.4 ms
+[FSM] [t=299.3s] MOVING obstacle approaching the route crossing at (-1.11, -0.25) — braking and yielding
+[FSM] [t=299.4s] MOVING obstacle on the route at (-1.41, -0.38) — braking and yielding
+[FSM] [t=302.8s] MOVING obstacle approaching the route crossing at (-1.11, -0.25) — braking and yielding
+[FSM] [t=303.7s] Moving obstacle clear (0.9 s) — resuming
+[MOVER] DECOY_BOT stops to give way to IntelliBot
+[FSM] [t=309.1s] STATE: NAVIGATE -> DOCK_PICK
+[FSM] [DOCK_PICK] TURN_TO_TARGET -> REFINE
+[FSM] [DOCK_PICK] LiDAR fit #1: parcel centre (-3.112, 0.480) vs estimate (-2.997, 0.403) -> shift 13.9 cm, approach heading 179.6 deg
+[FSM] [DOCK_PICK] REFINE -> TO_PREDOCK
+[FSM] [DOCK_PICK] TO_PREDOCK -> FACE
+[FSM] [DOCK_PICK] FACE -> REFINE
+[FSM] [DOCK_PICK] LiDAR fit #2: parcel centre (-3.102, 0.487) vs estimate (-3.112, 0.480) -> shift 1.2 cm, approach heading -178.5 deg
+[FSM] [DOCK_PICK] REFINE -> TO_PREDOCK
+[FSM] [DOCK_PICK] TO_PREDOCK -> FACE
+[FSM] [DOCK_PICK] FACE -> CREEP
+[CAMERA] [t=326.38s] front: OK -> LOW_CONTRAST grey std 10.9 < 12.0
+[CAMERA] [t=326.58s] front: LOW_CONTRAST -> BLANK grey std 0.00 < 2.0
+[FSM] [DOCK_PICK] CREEP -> SETTLE
+[FSM] [DOCK_PICK] DOCKED: range 0.308 m (lidar), lateral +0.9 cm, heading +1.5 deg
+[FSM] [t=327.8s] Docked at parcel: face range 0.308 m -> grasp TCP (0.408, 0.100) m in the robot frame, attempt 1/2
+[MANIP] pick: OPEN_GRIPPER -> PRE_GRASP -> DESCEND -> ADVANCE -> CHECK_AT_PALM -> CLOSE_GRIPPER -> CHECK_GRASP -> LATCH -> LIFT_CHECK
+[FSM] [t=327.8s] STATE: DOCK_PICK -> ARM_PICK
+[CAMERA] [t=331.79s] front: BLANK -> LOW_CONTRAST grey std 3.0 < 12.0
+[CAMERA] [t=332.06s] front: LOW_CONTRAST -> OK 
+[MANIP] CHECK_AT_PALM: OK palm_range=1.1cm
+[MANIP] CHECK_GRASP: OK width=19.9cm force=(12.0,12.0)N palm=0.9cm latch_present=1
+[MANIP] pick SUCCEEDED
+[MANIP] verify_attachment: SETTLE -> CHECK_ATTACHED -> TRANSIT_UP -> STOW -> CHECK_CARRY
+[FSM] [t=335.6s] STATE: ARM_PICK -> VERIFY_ATTACHMENT
+[MANIP] CHECK_ATTACHED: OK width=20.0cm force=(12.0,12.0)N palm=0.9cm latched=True -> HOLDING
+[MANIP] CHECK_CARRY: OK width=20.0cm force=(12.0,12.0)N palm=0.9cm latched=True -> HOLDING
+[MANIP] verify_attachment SUCCEEDED
+[FSM] [t=344.3s] Package P1 — Distance: 0.41 m — picked up by the arm (attachment verified: width + palm range + force/latch)
+[FSM] [t=344.3s] STATE: VERIFY_ATTACHMENT -> PLAN_DELIVERY
+[FSM] [t=344.3s] Destination: shelf slot RA-L1-B2 (Zone A rack, level 1, bay 2)
+[FSM] [t=344.3s] A* path: 23 waypoints, 6.26 m, 13.2 ms, 1813 expansions
+[FSM] [t=344.3s] STATE: PLAN_DELIVERY -> DELIVER
+[FSM] [t=344.4s] OBSTACLE DETECTED on the route at (-1.87, 0.10) 0.90 m ahead
+[FSM] [t=344.4s] Current path BLOCKED at waypoint 2
+[FSM] [t=344.4s] REPLANNING from (-2.69, 0.49) to (3.21, 1.12) [trigger PATH_BLOCKED]...
+[FSM] [t=344.4s] REPLAN SUCCESS: 24 waypoints, length 6.42 m, took 19.9 ms
+[FSM] [t=345.1s] MOVING obstacle approaching the route crossing at (-1.78, -0.18) — braking and yielding
+[FSM] [t=345.7s] Moving obstacle clear (0.5 s) — resuming
+[FSM] [t=346.0s] MOVING obstacle approaching the route crossing at (-1.78, -0.18) — braking and yielding
+[FSM] [t=346.1s] MOVING obstacle on the route at (-1.78, -0.18) — braking and yielding
+[FSM] [t=349.1s] Moving obstacle clear (3.0 s) — resuming
+[FSM] [t=349.7s] MOVING obstacle approaching the route crossing at (-1.78, -0.18) — braking and yielding
+[FSM] [t=350.1s] Moving obstacle clear (0.4 s) — resuming
+[FSM] [t=351.1s] MOVING obstacle approaching the route crossing at (-1.78, -0.18) — braking and yielding
+[FSM] [t=351.8s] Moving obstacle clear (0.7 s) — resuming
+[MOVER] DECOY_BOT stops to give way to IntelliBot
+[FSM] [t=363.3s] STATE: DELIVER -> DOCK_PLACE
+[FSM] [DOCK_PLACE] TO_PREDOCK -> FACE
+[FSM] [DOCK_PLACE] FACE -> CREEP
+[FSM] [DOCK_PLACE] CREEP -> SETTLE
+[FSM] [DOCK_PLACE] DOCKED: range 0.258 m (lidar), lateral -0.5 cm, heading -0.9 deg
+[FSM] [t=376.0s] Docked at rack: front range 0.258 m -> place TCP (0.388, 0.253) m in the robot frame for slot RA-L1-B2
+[MANIP] place: CHECK_HOLDING -> PRE_PLACE -> INSERT -> LOWER -> UNLATCH -> OPEN_GRIPPER
+[MANIP] CHECK_HOLDING: OK width=20.0cm force=(12.0,12.0)N palm=0.9cm latched=True -> HOLDING
+[FSM] [t=376.0s] STATE: DOCK_PLACE -> ARM_PLACE
+[MANIP] place SUCCEEDED
+[MANIP] verify_delivery: SETTLE -> RETRACT -> CHECK_RELEASED -> BACK_OUT -> STOW
+[FSM] [t=382.7s] STATE: ARM_PLACE -> VERIFY_DELIVERY
+[MANIP] CHECK_RELEASED: OK palm_range=6.9cm expected=7.0cm latched=False open=True
+[MANIP] verify_delivery SUCCEEDED
+[FSM] [t=389.2s] Package P1 placed on shelf slot RA-L1-B2 — dropped in Zone A rack, delivery verified by the palm range-finder
+[FSM] [t=389.2s] MISSION REPORT: time=97.3s, path_length=20.93 m, replans=3, collisions={'front': 0, 'rear': 0}
+[FSM] [t=389.2s] MANIPULATION: result=DELIVERED, slot=RA-L1-B2, grasp_attempts=1, place_attempts=1, verified_by_sensors=True, failure=None
+[FSM] [t=389.2s] STATE: VERIFY_DELIVERY -> RETURN_TO_CENTER
+[FSM] [t=389.2s] Returning to center: 16 waypoints, 4.17 m
+[FSM] [t=392.7s] MOVING obstacle on the route at (1.08, -0.48) — braking and yielding
+[FSM] [t=395.1s] Moving obstacle clear (2.4 s) — resuming
+[FSM] [t=396.1s] MOVING obstacle approaching the route crossing at (1.16, -0.50) — braking and yielding
+[FSM] [t=396.2s] Moving obstacle clear (0.2 s) — resuming
+[FSM] [t=399.6s] Reached center — awaiting next task.
+[FSM] [t=399.6s] STATE: RETURN_TO_CENTER -> AWAIT_INPUT
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[MOVER] CART_2 stops to give way to IntelliBot
+[MOVER] CART_2 still blocked after 4 s — backing up to clear the way
+[ROBOT] Task set: pick red (P1) -> deliver to Zone A (yellow)
+[FSM] [t=549.5s] STATE: AWAIT_INPUT -> IDLE
+[FSM] [t=549.5s] Task: pick P1 (red), deliver to Zone A
+[FSM] [t=549.5s] TASK REJECTED: P1 is already on rack slot RA-L1-B2 (delivered earlier in this run), not in the pickup area — choose another parcel
+[FSM] [t=549.5s] STATE: IDLE -> AWAIT_INPUT
+[ROBOT] Operator selected: End Simulation.
+[FSM] [t=550.7s] Operator requested End Simulation.
+[FSM] [t=550.7s] STATE: AWAIT_INPUT -> DONE
+[FSM] [t=550.7s] MISSION REPORT: time=1.2s, path_length=0.00 m, replans=0, collisions={'front': 0, 'rear': 0}
+[FSM] [t=550.7s] MANIPULATION: result=FAILED, slot=None, grasp_attempts=0, place_attempts=0, verified_by_sensors=False, failure=None
+[MOVER] CART_2 stops to give way to IntelliBot
+[INTELLIBOT] mission report -> C:\Users\Abhishek\Downloads\Robotic_Intelligence\RI-Project\logs\mission_report.json
+[INTELLIBOT] mission DONE — robot idle, dashboard stays live (pause/reset the simulation to stop)

@@ -1,0 +1,200 @@
+{
+  "time_s": 1.15199999999993,
+  "path_length_m": 0.0,
+  "replans": 0,
+  "replan_reasons": {
+    "PATH_BLOCKED": 5,
+    "DYNAMIC_BLOCKED": 1
+  },
+  "replan_events": [
+    {
+      "t": 83.58,
+      "reason": "PATH_BLOCKED",
+      "start": [
+        -0.005,
+        -0.301
+      ],
+      "goal": [
+        -2.65,
+        0.0
+      ],
+      "ok": true,
+      "start_shift_m": 0.0,
+      "why": ""
+    },
+    {
+      "t": 87.62,
+      "reason": "PATH_BLOCKED",
+      "start": [
+        -0.778,
+        -0.379
+      ],
+      "goal": [
+        -2.65,
+        0.0
+      ],
+      "ok": true,
+      "start_shift_m": 0.0,
+      "why": ""
+    },
+    {
+      "t": 97.57,
+      "reason": "PATH_BLOCKED",
+      "start": [
+        -3.111,
+        -2.287
+      ],
+      "goal": [
+        -2.65,
+        0.0
+      ],
+      "ok": true,
+      "start_shift_m": 0.0,
+      "why": ""
+    },
+    {
+      "t": 294.58,
+      "reason": "PATH_BLOCKED",
+      "start": [
+        0.143,
+        -0.184
+      ],
+      "goal": [
+        -2.547,
+        0.403
+      ],
+      "ok": true,
+      "start_shift_m": 0.0,
+      "why": ""
+    },
+    {
+      "t": 299.25,
+      "reason": "DYNAMIC_BLOCKED",
+      "start": [
+        -0.464,
+        0.017
+      ],
+      "goal": [
+        -2.547,
+        0.403
+      ],
+      "ok": true,
+      "start_shift_m": 0.0,
+      "why": ""
+    },
+    {
+      "t": 344.43,
+      "reason": "PATH_BLOCKED",
+      "start": [
+        -2.687,
+        0.488
+      ],
+      "goal": [
+        3.21,
+        1.125
+      ],
+      "ok": true,
+      "start_shift_m": 0.0,
+      "why": ""
+    }
+  ],
+  "nav_recoveries": 0,
+  "collisions": {
+    "front": 0,
+    "rear": 0
+  },
+  "safety": {
+    "min_clearance_m": -0.08,
+    "emergency_stops": 1,
+    "near_miss_steps": 2,
+    "governor_enabled": true,
+    "v_cruise": 0.7
+  },
+  "pick_mode": "arm (latched parallel gripper)",
+  "result": "FAILED",
+  "package": "P1",
+  "zone": "A",
+  "slot": null,
+  "grasp_attempts": 0,
+  "place_attempts": 0,
+  "delivery_verified_by_sensors": false,
+  "failure_reason": null,
+  "docking": [],
+  "manipulation_checks": {
+    "CHECK_AT_PALM": "palm_range=1.1cm",
+    "CHECK_GRASP": "width=19.9cm force=(12.0,12.0)N palm=0.9cm latch_present=1",
+    "CHECK_ATTACHED": "width=20.0cm force=(12.0,12.0)N palm=0.9cm latched=True -> HOLDING",
+    "CHECK_CARRY": "width=20.0cm force=(12.0,12.0)N palm=0.9cm latched=True -> HOLDING",
+    "CHECK_HOLDING": "width=20.0cm force=(12.0,12.0)N palm=0.9cm latched=True -> HOLDING",
+    "CHECK_RELEASED": "palm_range=6.9cm expected=7.0cm latched=False open=True"
+  },
+  "duration_minutes": 20.8070890545845,
+  "average_speed_mps": 0.0,
+  "collision_rate_per_meter": 0.0,
+  "replan_rate_per_meter": 0.0,
+  "task_success_rate": 0.0,
+  "recovery_success_rate": 1.0,
+  "min_clearance_meters": null,
+  "localization": {
+    "mode": "ekf",
+    "status": "OK",
+    "gps": "OK",
+    "gps_trust": 1.0,
+    "imu": "OK",
+    "imu_trust": 1.0,
+    "cov_trace": 0.000145,
+    "sigma_xy": 0.0071,
+    "last_nis": 0.0,
+    "gps_accepted": 34471,
+    "gps_rejected": 0,
+    "relocalizations": 0,
+    "heading_reanchors": 0
+  },
+  "localization_vs_ground_truth": {
+    "samples": 5746,
+    "rmse_xy_m": 0.0031,
+    "rmse_theta_deg": 0.09,
+    "max_xy_m": 0.012,
+    "mean_nees": 0.147,
+    "note": "Supervisor ground truth, evaluation only"
+  },
+  "collisions_bumper": {
+    "front": 0,
+    "rear": 0
+  },
+  "camera_health": {
+    "final": {
+      "front": "OK",
+      "rear": "OK"
+    },
+    "transitions": {
+      "front": 11,
+      "rear": 1
+    }
+  },
+  "faults": [],
+  "moving_obstacles": {
+    "CART_1": {
+      "yields": 0,
+      "backoffs": 0,
+      "turns": 0,
+      "state": "DRIVE"
+    },
+    "CART_2": {
+      "yields": 35,
+      "backoffs": 33,
+      "turns": 0,
+      "state": "YIELD"
+    },
+    "DECOY_BOT": {
+      "yields": 4,
+      "backoffs": 0,
+      "turns": 72,
+      "state": "DRIVE"
+    }
+  },
+  "dynamic_map": {
+    "updates": 778,
+    "cells_marked_total": 691
+  }
+}

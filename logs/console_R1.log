@@ -1,0 +1,34 @@
+[WORLD CHECK] WARNING: DEF PKG_P1 not found in world
+[WORLD CHECK] WARNING: DEF PKG_P2 not found in world
+[WORLD CHECK] WARNING: DEF PKG_P3 not found in world
+[WORLD CHECK] WARNING: DEF SHELF_1 not found in world
+[WORLD CHECK] WARNING: DEF SHELF_2 not found in world
+[WORLD CHECK] WARNING: DEF SHELF_3 not found in world
+[WORLD CHECK] WARNING: DEF SHELF_4 not found in world
+[WORLD CHECK] WARNING: DEF OBST_1 not found in world
+[WORLD CHECK] WARNING: DEF OBST_2 not found in world
+[WORLD CHECK] WARNING: DEF DEST_RACK_A not found in world
+[WORLD CHECK] WARNING: DEF DEST_RACK_B not found in world
+Device "shoulder_motor" was not found on robot "ROBOT_1"
+Device "elbow_motor" was not found on robot "ROBOT_1"
+Device "shoulder_sensor" was not found on robot "ROBOT_1"
+Device "elbow_sensor" was not found on robot "ROBOT_1"
+Device "finger_left_motor" was not found on robot "ROBOT_1"
+Device "finger_right_motor" was not found on robot "ROBOT_1"
+Device "finger_left_sensor" was not found on robot "ROBOT_1"
+Device "finger_right_sensor" was not found on robot "ROBOT_1"
+Device "finger_left_touch" was not found on robot "ROBOT_1"
+Device "finger_right_touch" was not found on robot "ROBOT_1"
+Device "palm_range" was not found on robot "ROBOT_1"
+Device "gripper_latch" was not found on robot "ROBOT_1"
+[R1] WARNING: no manipulator in this world (missing ['shoulder_motor', 'elbow_motor', 'shoulder_sensor', 'elbow_sensor', 'finger_left_motor', 'finger_right_motor', 'finger_left_sensor', 'finger_right_sensor', 'finger_left_touch', 'finger_right_touch', 'palm_range', 'gripper_latch']) — PICK is a PLACEHOLDER
+[R1] navigation: localization=ekf, dynamic replanning=ON, speed governor=ON (cruise 0.70 m/s)
+[INTELLIBOT] Interactive mode — waiting for task input in console...
+[INTELLIBOT] PKG_P3 not in world — package won't be carried
+Traceback (most recent call last):
+  File "C:\Users\Abhishek\Downloads\Robotic_Intelligence\RI-Project\controllers\intellibot_controller\intellibot_controller.py", line 641, in <module>
+    main()
+  File "C:\Users\Abhishek\Downloads\Robotic_Intelligence\RI-Project\controllers\intellibot_controller\intellibot_controller.py", line 354, in main
+    faults = FaultInjector(robot, timestep)
+             ^^^^^^^^^^^^^
+NameError: name 'FaultInjector' is not defined
